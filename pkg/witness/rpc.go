@@ -8,11 +8,6 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-/* ===================================================================== */
-/*                        Types that mirror RPC JSON                      */
-/* ===================================================================== */
-
-// Proof mirrors the return shape of the eth_getProof RPC call.
 type Proof struct {
 	AccountProof []string `json:"accountProof"`
 	StorageProof []struct {
@@ -26,11 +21,6 @@ type Proof struct {
 	Nonce       string `json:"nonce"`
 }
 
-/* ===================================================================== */
-/*                           RPC helper functions                        */
-/* ===================================================================== */
-
-// FetchProof calls eth_getProof(contract, [slotKey], block).
 func FetchProof(
 	ctx context.Context,
 	cli *ethclient.Client,
@@ -49,7 +39,6 @@ func FetchProof(
 	return &p, err
 }
 
-// FetchStateRoot returns the stateRoot from block headers.
 func FetchStateRoot(ctx context.Context, cli *ethclient.Client, block uint64) (common.Hash, error) {
 	hexNum := hexutil.Uint64(block) // 0x-prefixed
 	var hdr struct {

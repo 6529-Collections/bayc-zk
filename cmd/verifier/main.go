@@ -24,9 +24,6 @@ func main() {
 		Use:   "verifier",
 		Short: "Verify Groth16 proof of BAYC ownership",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			//------------------------------------------------------------------
-			// Load artefacts
-			//------------------------------------------------------------------
 			pBytes, _ := os.ReadFile(proofPath)
 			vBytes, _ := os.ReadFile(vkPath)
 			jBytes, _ := os.ReadFile(publicPath)
@@ -40,17 +37,10 @@ func main() {
 			var pub witness.PublicInputs
 			_ = json.Unmarshal(jBytes, &pub)
 
-			//------------------------------------------------------------------
-			// Optional stateRoot sanity
-			//------------------------------------------------------------------
 			if rpcURL != "" {
 				_ = godotenv.Load()
-				// fetch block header and compare – left as exercise
 			}
 
-			//------------------------------------------------------------------
-			// Public witness
-			//------------------------------------------------------------------
 			pubAssign := &circuits.BaycOwnershipCircuit{
 				StateRoot: pub.StateRoot,
 				TokenID:   pub.TokenID,
@@ -62,9 +52,6 @@ func main() {
 				frontend.PublicOnly(),
 			)
 
-			//------------------------------------------------------------------
-			// Verify
-			//------------------------------------------------------------------
 			if err := groth16.Verify(proof, vk, pubWit); err != nil {
 				return fmt.Errorf("verification failed: %w", err)
 			}

@@ -12,10 +12,20 @@ import (
 
 /* helpers ---------------------------------------------------------------- */
 
-func leafBytes() []uints.U8 {
+func leafBytes(api frontend.API) []uints.U8 {
 	return []uints.U8{
-		uints.NewU8(0x83), // RLP header
-		uints.NewU8(0x12), uints.NewU8(0x34), uints.NewU8(0x56),
+		mpt.ConstU8(api, 0x83),      // short-string header
+		mpt.ConstU8(api, 0x12),
+		mpt.ConstU8(api, 0x34),
+		mpt.ConstU8(api, 0x56),
+	}
+}
+
+func leafValue(api frontend.API) []uints.U8 {
+	return []uints.U8{
+		mpt.ConstU8(api, 0x12),
+		mpt.ConstU8(api, 0x34),
+		mpt.ConstU8(api, 0x56),
 	}
 }
 

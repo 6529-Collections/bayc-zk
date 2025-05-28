@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-/* ---------------- little helper ---------------- */
 
 func mustOpen(path string) *os.File {
 	f, err := os.Open(path)
@@ -23,8 +22,6 @@ func mustOpen(path string) *os.File {
 	}
 	return f
 }
-
-/* ---------------- fixture server ---------------- */
 
 func serveFixture(t *testing.T, filename string) *httptest.Server {
 	t.Helper()
