@@ -10,75 +10,101 @@ import (
 	"github.com/yourorg/bayczk/pkg/mpt"
 )
 
-/* helpers ---------------------------------------------------------------- */
-
-func leafBytes(api frontend.API) []uints.U8 {
+func leafBytes() []uints.U8 {
 	return []uints.U8{
-		mpt.ConstU8(api, 0x83),      // short-string header
-		mpt.ConstU8(api, 0x12),
-		mpt.ConstU8(api, 0x34),
-		mpt.ConstU8(api, 0x56),
+		mpt.ConstU8(0x83), // RLP header: string-length 3
+		mpt.ConstU8(0x12),
+		mpt.ConstU8(0x34),
+		mpt.ConstU8(0x56),
 	}
 }
 
-func leafValue(api frontend.API) []uints.U8 {
+func leafValue() []uints.U8 {               // 12 34 56
 	return []uints.U8{
-		mpt.ConstU8(api, 0x12),
-		mpt.ConstU8(api, 0x34),
-		mpt.ConstU8(api, 0x56),
+		mpt.ConstU8(0x12),
+		mpt.ConstU8(0x34),
+		mpt.ConstU8(0x56),
 	}
 }
 
-var goodVal = [3]uint8{0x12, 0x34, 0x56}
-var badVal  = [3]uint8{0x99, 0x99, 0x99}
+type leafHappyCircuit struct{}
 
-/* ----------------------------------------------------------------------- */
-/* Generic circuit that takes the expected value as 3 private variables    */
-/* ----------------------------------------------------------------------- */
-
-type leafCircuit struct {
-	V [3]frontend.Variable
-}
-
-func (c *leafCircuit) Define(api frontend.API) error {
+func (c *leafHappyCircuit) Define(api frontend.API) error {
 	leaf := leafBytes()
 	root := mpt.NodeHash(api, leaf)
 
-	leafVal := []uints.U8{
-		uints.NewU8(0x12),
-		uints.NewU8(0x34),
-		uints.NewU8(0x56),
-	}
-	
 	mpt.VerifyBranch(api, mpt.BranchInput{
 		Nodes:   [][]uints.U8{leaf},
-		Path:    []uints.U8{},
-		LeafVal: leafVal,
+		Path:    nil,          // empty nibble path
+		LeafVal: leafValue(),
 		Root:    root,
 	})
 	return nil
 }
 
-/* --------------------------------------------------------------------- */
-/* Tests                                                                 */
-/* --------------------------------------------------------------------- */
+type leafWrongValueCircuit struct {
+	V [3]uints.U8 `gnark:",private"` // supplied by the witness
+}
+
+func (c *leafWrongValueCircuit) Define(api frontend.API) error {
+	leaf := leafBytes()
+	root := mpt.NodeHash(api, leaf)
+
+	// compare the leaf’s payload with the *witness-provided* value
+	mpt.VerifyBranch(api, mpt.BranchInput{
+		Nodes:   [][]uints.U8{leaf},
+		Path:    nil,
+		LeafVal: c.V[:],           // **variables, not constants**
+		Root:    root,
+	})
+	return nil
+}
+
+type leafWrongRootCircuit struct {
+	V [3]uints.U8 `gnark:",private"`
+}
+
+func (c *leafWrongRootCircuit) Define(api frontend.API) error {
+	leaf := leafBytes()
+
+	bogus := mpt.NodeHash(api, []uints.U8{
+		mpt.ConstU8('d'), mpt.ConstU8('e'), mpt.ConstU8('a'), mpt.ConstU8('d'),
+		mpt.ConstU8('b'), mpt.ConstU8('e'), mpt.ConstU8('e'), mpt.ConstU8('f'),
+	})
+
+	mpt.VerifyBranch(api, mpt.BranchInput{
+		Nodes:   [][]uints.U8{leaf},
+		Path:    nil,
+		LeafVal: c.V[:],           // witness value (correct or not)
+		Root:    bogus,
+	})
+	return nil
+}
 
 func TestMPTLeafHappy(t *testing.T) {
 	assert := test.NewAssert(t)
-
-	w := leafCircuit{}
-	for i, b := range goodVal {
-		w.V[i] = b
-	}
-	assert.ProverSucceeded(&leafCircuit{}, &w)
+	assert.ProverSucceeded(new(leafHappyCircuit), &leafHappyCircuit{})
 }
 
 func TestMPTLeafWrongValueFails(t *testing.T) {
 	assert := test.NewAssert(t)
 
-	w := leafCircuit{}
-	for i, b := range badVal {
-		w.V[i] = b
-	}
-	assert.ProverFailed(&leafCircuit{}, &w)
+	var w leafWrongValueCircuit
+	w.V[0] = mpt.ConstU8(0x99) // wrong bytes
+	w.V[1] = mpt.ConstU8(0x99)
+	w.V[2] = mpt.ConstU8(0x99)
+
+	assert.ProverFailed(new(leafWrongValueCircuit), &w)
+}
+
+func TestMPTLeafWrongRootFails(t *testing.T) {
+	assert := test.NewAssert(t)
+
+	var w leafWrongRootCircuit
+	// here the *value is correct* but the root is bogus
+	w.V[0] = mpt.ConstU8(0x12)
+	w.V[1] = mpt.ConstU8(0x34)
+	w.V[2] = mpt.ConstU8(0x56)
+
+	assert.ProverFailed(new(leafWrongRootCircuit), &w)
 }
