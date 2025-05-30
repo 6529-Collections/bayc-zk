@@ -1,4 +1,3 @@
-// pkg/witness/builder.go
 package witness
 
 import (
@@ -9,11 +8,22 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/uints"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 
 	"github.com/yourorg/bayczk/circuits"
 	"github.com/yourorg/bayczk/pkg/mpt"
+	"github.com/yourorg/bayczk/pkg/slot"
 )
+
+func hexToNibbles(h [32]byte) []uints.U8 {
+    out := make([]uints.U8, 64)
+    for i, b := range h {
+        out[2*i+0] = mpt.ConstU8(b >> 4)     // high nibble
+        out[2*i+1] = mpt.ConstU8(b & 0x0f)   // low nibble
+    }
+    return out
+}
 
 func toU8Slice(b []byte) []uints.U8 {
 	out := make([]uints.U8, len(b))
@@ -56,12 +66,26 @@ func Build(
 		storNodes = append(storNodes, toU8Slice(bs))
 	}
 
-	ownerBytes := expOwner.Bytes()               // 20 B
-	var leafVal []uints.U8
-	for _, b := range ownerBytes { leafVal = append(leafVal, mpt.ConstU8(b)) }
+	storLeaf := storNodes[len(storNodes)-1]     // []uints.U8
+	leafVal  := append([]uints.U8(nil), storLeaf[1:]...)
 
-	/* ─── full witness (private+public) -------------------------------- */
-    assignment := &circuits.BaycOwnershipCircuit{}          // all-zero circuit
+	accPath  := hexToNibbles(crypto.Keccak256Hash(contract.Bytes()))
+	storeKey := slot.Calc(tokenID, 0)          // you already imported pkg/slot
+	storPath := hexToNibbles(storeKey)
+
+	assignment := &circuits.BaycOwnershipCircuit{
+		// public scalars -------------------------------------------------
+		// gnark accepts plain Go numbers / big.Int as frontend.Variable.
+		StateRoot: uint64(root[0]),   // we hash-chain with the *first byte*
+		TokenID:   tokenID,           // *big.Int is fine
+
+		// private witnesses ---------------------------------------------
+		AccountProof: accNodes,
+		StorageProof: storNodes,
+		AccountPath:  accPath,
+		StoragePath:  storPath,
+		OwnerBytes:   leafVal,        // 20-byte constant
+	}
     full, _ := frontend.NewWitness(assignment,
         circuits.Curve().ScalarField(),
     )

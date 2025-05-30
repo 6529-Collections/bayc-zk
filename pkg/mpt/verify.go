@@ -23,13 +23,22 @@ type BranchInput struct {
 }
 
 // Verifies a **single leaf node**.  Works for Milestone-1 tests.
-func VerifyBranch(api frontend.API, in BranchInput) {
-	// parent-pointer check
-	api.AssertIsEqual(NodeHash(api, in.Nodes[0]), in.Root)
+func VerifyBranch(api frontend.API, in BranchInput) frontend.Variable {
+    // 1) parent-pointer check
+    api.AssertIsEqual(NodeHash(api, in.Nodes[0]), in.Root)
 
-	// payload starts right after 1-byte RLP header → compare value
-	leaf := in.Nodes[0][1:] // drop RLP header
-	for i := range in.LeafVal {
-		api.AssertIsEqual(leaf[i].Val, in.LeafVal[i].Val)
-	}
+    // 2) (optional) leaf-value check
+    if len(in.LeafVal) != 0 {
+        leaf := in.Nodes[0][1:]            // after 1-byte RLP header
+        for i := range in.LeafVal {
+            api.AssertIsEqual(leaf[i].Val, in.LeafVal[i].Val)
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    //  Milestone-1 stub: we don’t actually parse the account leaf yet,
+    //  so just propagate the same hash downward.  Later we’ll replace
+    //  this with “extract StorageRoot from the leaf”.
+    // ────────────────────────────────────────────────────────────────
+    return NodeHash(api, in.Nodes[0])      // equals in.Root today
 }

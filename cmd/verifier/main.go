@@ -44,7 +44,6 @@ func main() {
 			pubAssign := &circuits.BaycOwnershipCircuit{
 				StateRoot: pub.StateRoot,
 				TokenID:   pub.TokenID,
-				Owner:     pub.Owner,
 			}
 			pubWit, _ := frontend.NewWitness(
 				pubAssign,
