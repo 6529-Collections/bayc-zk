@@ -8,9 +8,6 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-/* tiny helper ----------------------------------------------------------------*/
-func b(x byte) uints.U8 { return uints.NewU8(x) }
-
 /* header test circuit --------------------------------------------------------*/
 type headerCircuit struct {
 	B0, B1, B2 uints.U8
