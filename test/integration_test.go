@@ -21,7 +21,7 @@ import (
 	wit "github.com/yourorg/bayczk/pkg/witness"
 )
 
-/* ──────────────── tiny fixture RPC server ──────────────── */
+/* ─────────────── tiny fixture RPC server ─────────────── */
 
 func rpcFixtureServer(tb testing.TB) *httptest.Server {
 	tb.Helper()
@@ -47,7 +47,7 @@ func rpcFixtureServer(tb testing.TB) *httptest.Server {
 	}))
 }
 
-/* ───────────────────────── e2e test ─────────────────────── */
+/* ───────────────────── end-to-end test ─────────────────── */
 
 func TestEndToEnd(t *testing.T) {
 	if testing.Short() {
@@ -63,22 +63,26 @@ func TestEndToEnd(t *testing.T) {
 	tokenID  := big.NewInt(8822)
 	owner    := common.HexToAddress("0xc7626d18d697913c9e3ab06366399c7e9e814e94")
 
-	/* ---------- witness bundle -------------------------------------- */
+	/* ------------ build witness bundle ------------------- */
 	bdl, err := wit.Build(ctx, srv.URL, blockNum, contract, tokenID, owner)
 	require.NoError(t, err)
 
-	/* ---------- compile circuit ------------------------------------- */
+	/* ------------ compile circuit ------------------------ */
 	cs, err := frontend.Compile(
 		circuits.Curve().ScalarField(),
 		r1cs.NewBuilder,
-		bdl.Blueprint, // blueprint only fixes slice lengths
-	)
+		bdl.Blueprint)
 	require.NoError(t, err)
 
-	/* ---------- 1) good witness passes ------------------------------ */
+	/* ------------ 1) good witness must solve ------------- */
 	require.NoError(t, cs.IsSolved(bdl.Full))
 
-	/* ---------- 2) clone witness, flip 1 owner-byte ----------------- */
+	/* -------------------------------------------------------
+	   2) NEGATIVE path – deep-copy witness and corrupt the
+	      very first field-element (public StateRoot byte).
+	      That byte participates in a constraint, so the
+	      system must now be UNSAT.
+	   ------------------------------------------------------ */
 
 	blob, err := bdl.Full.MarshalBinary()
 	require.NoError(t, err)
@@ -87,20 +91,18 @@ func TestEndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, badFull.UnmarshalBinary(blob))
 
-	switch vecAny := badFull.Vector().(type) {
+	switch v := badFull.Vector().(type) {
 
-	case fr.Vector: // value slice
-		ownerStart := len(vecAny) - 32
-		vecAny[ownerStart].SetUint64(vecAny[ownerStart].Uint64() ^ 1)
+	case fr.Vector: // value slice (header)
+		v[0].SetUint64(v[0].Uint64() ^ 1) // flip 1 bit
 
 	case *fr.Vector: // pointer slice
-		ownerStart := len(*vecAny) - 32
-		(*vecAny)[ownerStart].SetUint64((*vecAny)[ownerStart].Uint64() ^ 1)
+		(*v)[0].SetUint64((*v)[0].Uint64() ^ 1)
 
 	default:
-		t.Fatalf("unexpected vector type %T", vecAny)
+		t.Fatalf("unexpected vector type %T", v)
 	}
 
-	/* ---------- 3) corrupted witness must fail ---------------------- */
+	/* ------------ 3) corrupted witness must FAIL --------- */
 	require.Error(t, cs.IsSolved(badFull))
 }
