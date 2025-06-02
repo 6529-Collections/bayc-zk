@@ -1,8 +1,9 @@
-// pkg/mpt/verify.go  — *minimal leaf-only version, compiles on v0.12*
-
+// pkg/mpt/verify.go  – TEMPORARY debug version
 package mpt
 
 import (
+	"fmt"
+
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/uints"
 	"github.com/yourorg/bayczk/internal/keccak"
@@ -16,29 +17,36 @@ func NodeHash(api frontend.API, bs []uints.U8) frontend.Variable {
 }
 
 type BranchInput struct {
-	Nodes   [][]uints.U8   // RLP-encoded nodes, root → leaf
-	Path    []uints.U8     // (unused for now)
-	LeafVal []uints.U8     // expected payload bytes
+	Nodes   [][]uints.U8
+	Path    []uints.U8
+	LeafVal []uints.U8
 	Root    frontend.Variable
 }
 
-// Verifies a **single leaf node**.  Works for Milestone-1 tests.
+// ONLY handles “root → single-leaf” for Milestone-1.
 func VerifyBranch(api frontend.API, in BranchInput) frontend.Variable {
-    // 1) parent-pointer check
-    api.AssertIsEqual(NodeHash(api, in.Nodes[0]), in.Root)
+	fmt.Println("VerifyBranch")
+	/* ------------------------------------------------ root pointer check */
+	rootNode := in.Nodes[0] // **first** = root
+	api.AssertIsEqual(NodeHash(api, rootNode), in.Root)
 
-    // 2) (optional) leaf-value check
-    if len(in.LeafVal) != 0 {
-        leaf := in.Nodes[0][1:]            // after 1-byte RLP header
-        for i := range in.LeafVal {
-            api.AssertIsEqual(leaf[i].Val, in.LeafVal[i].Val)
-        }
-    }
+	/* ------------------------------------------------ leaf-value check   */
+	leafNode := in.Nodes[len(in.Nodes)-1] // **last** = leaf
+	fmt.Println("len(in.LeafVal)", len(in.LeafVal))
+	if len(in.LeafVal) != 0 {
+		payload := leafNode[1:] // skip 1-byte 0xa0 header
+		for i := range in.LeafVal {
 
-    // ────────────────────────────────────────────────────────────────
-    //  Milestone-1 stub: we don’t actually parse the account leaf yet,
-    //  so just propagate the same hash downward.  Later we’ll replace
-    //  this with “extract StorageRoot from the leaf”.
-    // ────────────────────────────────────────────────────────────────
-    return NodeHash(api, in.Nodes[0])      // equals in.Root today
+            fmt.Printf("[account] LeafVal=%d bytes\n", len(in.LeafVal))
+			// ---------- DEBUG PRINT (remove when green) ----------
+			fmt.Printf("compare leaf[%d]  witness=%d  expected=%d\n",
+				i, payload[i].Val, in.LeafVal[i].Val)
+			// -----------------------------------------------------
+
+			api.AssertIsEqual(payload[i].Val, in.LeafVal[i].Val)
+		}
+	}
+
+	// For now we simply return the leaf hash (not yet used further).
+	return NodeHash(api, leafNode)
 }

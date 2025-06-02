@@ -3,29 +3,25 @@ package test
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
+	bw "github.com/consensys/gnark/backend/witness"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-	"github.com/consensys/gnark/std/math/uints"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
 	"github.com/yourorg/bayczk/circuits"
-	"github.com/yourorg/bayczk/pkg/mpt"
-	"github.com/yourorg/bayczk/pkg/witness"
+	wit "github.com/yourorg/bayczk/pkg/witness"
 )
 
-/* -------------------------------------------------------------------------- */
-/* tiny RPC server that replays the JSON fixtures                             */
-/* -------------------------------------------------------------------------- */
+/* ──────────────── tiny fixture RPC server ──────────────── */
 
 func rpcFixtureServer(tb testing.TB) *httptest.Server {
 	tb.Helper()
@@ -36,103 +32,75 @@ func rpcFixtureServer(tb testing.TB) *httptest.Server {
 		var q req
 		_ = json.NewDecoder(r.Body).Decode(&q)
 
-		var fn string
+		var file string
 		switch q.Method {
 		case "eth_getBlockByNumber":
-			fn = "header_22566332.json"
+			file = "header_22566332.json"
 		case "eth_getProof":
-			fn = "proof_bayc_8822.json"
+			file = "proof_bayc_8822.json"
 		default:
-			http.Error(w, "unsupported", http.StatusBadRequest)
+			http.Error(w, "unsupported method", http.StatusBadRequest)
 			return
 		}
-		http.ServeFile(w, r, filepath.Join("..", "pkg", "witness", "testdata", fn))
+		http.ServeFile(w, r,
+			filepath.Join("..", "pkg", "witness", "testdata", file))
 	}))
 }
 
-/* -------------------------------------------------------------------------- */
-/* helper                                                                     */
-/* -------------------------------------------------------------------------- */
-
-func mustRead(tb testing.TB, p string) []byte {
-	tb.Helper()
-	b, err := os.ReadFile(p)
-	require.NoError(tb, err)
-	return b
-}
-
-/* -------------------------------------------------------------------------- */
-/* E2E: witness ➜ compile ➜ solved?                                           */
-/* -------------------------------------------------------------------------- */
+/* ───────────────────────── e2e test ─────────────────────── */
 
 func TestEndToEnd(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skip e2e in short mode")
+		t.Skip("skip e2e in –short")
 	}
 
-	/* ---------- spin up mock RPC ------------------------------------ */
 	srv := rpcFixtureServer(t)
 	defer srv.Close()
 
-	/* ---------- inputs ---------------------------------------------- */
 	ctx      := context.Background()
 	blockNum := uint64(22566332)
 	contract := common.HexToAddress("0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d")
 	tokenID  := big.NewInt(8822)
 	owner    := common.HexToAddress("0xc7626d18d697913c9e3ab06366399c7e9e814e94")
 
-	/* ---------- build witness bundle -------------------------------- */
-	bdl, err := witness.Build(ctx, srv.URL, blockNum, contract, tokenID, owner)
+	/* ---------- witness bundle -------------------------------------- */
+	bdl, err := wit.Build(ctx, srv.URL, blockNum, contract, tokenID, owner)
 	require.NoError(t, err)
 
-	/* ---------- blueprint with correct slice lengths ---------------- */
-	// Read the proof JSON once more – just for lengths
-	var proof struct {
-		Result struct {
-			AccountProof []string `json:"accountProof"`
-			StorageProof []struct{ Proof []string } `json:"storageProof"`
-		} `json:"result"`
-	}
-	fixture := filepath.Join("..", "pkg", "witness", "testdata", "proof_bayc_8822.json")
-	require.NoError(t, json.Unmarshal(mustRead(t, fixture), &proof))
-
-	accBP := make([][]uints.U8, len(proof.Result.AccountProof))
-	for i, s := range proof.Result.AccountProof {
-		raw, _ := hex.DecodeString(s[2:])
-		accBP[i] = make([]uints.U8, len(raw))
-	}
-	storBP := make([][]uints.U8, len(proof.Result.StorageProof[0].Proof))
-	for i, s := range proof.Result.StorageProof[0].Proof {
-		raw, _ := hex.DecodeString(s[2:])
-		storBP[i] = make([]uints.U8, len(raw))
-	}
-
-	blueprint := circuits.BaycOwnershipCircuit{
-		AccountProof: accBP,
-		StorageProof: storBP,
-		AccountPath:  make([]uints.U8, 64), // 32-byte keccak → 64 nibbles
-		StoragePath:  make([]uints.U8, 64),
-		OwnerBytes:   make([]uints.U8, 20),
-	}
-
-	/* ---------- compile & solve ------------------------------------- */
+	/* ---------- compile circuit ------------------------------------- */
 	cs, err := frontend.Compile(
 		circuits.Curve().ScalarField(),
 		r1cs.NewBuilder,
-		&blueprint,
+		bdl.Blueprint, // blueprint only fixes slice lengths
 	)
 	require.NoError(t, err)
 
+	/* ---------- 1) good witness passes ------------------------------ */
 	require.NoError(t, cs.IsSolved(bdl.Full))
-}
 
-/* -------------------------------------------------------------------------- */
-/* (unused) converts raw bytes to []uints.U8 – kept for possible extensions   */
-/* -------------------------------------------------------------------------- */
-func u8Slice(b []byte) []uints.U8 {
-	out := make([]uints.U8, len(b))
-	for i, v := range b {
-		out[i] = mpt.ConstU8(v)
+	/* ---------- 2) clone witness, flip 1 owner-byte ----------------- */
+
+	blob, err := bdl.Full.MarshalBinary()
+	require.NoError(t, err)
+
+	badFull, err := bw.New(circuits.Curve().ScalarField())
+	require.NoError(t, err)
+	require.NoError(t, badFull.UnmarshalBinary(blob))
+
+	switch vecAny := badFull.Vector().(type) {
+
+	case fr.Vector: // value slice
+		ownerStart := len(vecAny) - 32
+		vecAny[ownerStart].SetUint64(vecAny[ownerStart].Uint64() ^ 1)
+
+	case *fr.Vector: // pointer slice
+		ownerStart := len(*vecAny) - 32
+		(*vecAny)[ownerStart].SetUint64((*vecAny)[ownerStart].Uint64() ^ 1)
+
+	default:
+		t.Fatalf("unexpected vector type %T", vecAny)
 	}
-	return out
+
+	/* ---------- 3) corrupted witness must fail ---------------------- */
+	require.Error(t, cs.IsSolved(badFull))
 }
