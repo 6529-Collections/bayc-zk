@@ -7,8 +7,8 @@ import (
 
 type PublicInputs struct {
 	StateRoot [32]byte `json:"stateRoot"`
-	TokenID   string   `json:"tokenId"` // uint256 as decimal string
-	Owner     string   `json:"owner"`   // hex without 0x
+	TokenID   string   `json:"tokenId"`
+	Owner     string   `json:"owner"`
 }
 
 type Bundle struct {

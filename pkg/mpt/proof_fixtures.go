@@ -14,9 +14,9 @@ import (
 
 type rawFixture struct {
 	Root    string   `json:"root"`
-	Path    string   `json:"path"`   // hex nibble string (even length)
-	Leaf    string   `json:"leaf"`   // 32-byte account payload
-	Nodes   []string `json:"nodes"`  // RLP-encoded, root … leaf
+	Path    string   `json:"path"`
+	Leaf    string   `json:"leaf"`
+	Nodes   []string `json:"nodes"`
 }
 
 type branchVec struct {
@@ -26,7 +26,6 @@ type branchVec struct {
 	payload []uints.U8
 }
 
-// test helper – panics on error (only used in tests)
 func mustLoadFixtures(t *testing.T) branchVec {
 	file := filepath.Join("testdata", "proof_bayc_8822.json")
 	raw, err := os.ReadFile(file)

@@ -8,7 +8,6 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-/* header test circuit --------------------------------------------------------*/
 type headerCircuit struct {
 	B0, B1, B2 uints.U8
 	Off        frontend.Variable `gnark:",public"`
@@ -22,19 +21,18 @@ func (c *headerCircuit) Define(api frontend.API) error {
 	return nil
 }
 
-/* ---------------------------------------------------------------------------*/
 func TestRLPHeaderVariants(t *testing.T) {
 	assert := test.NewAssert(t)
 
 	vec := []struct {
 		b0, b1, b2 byte
 		off        byte
-		ln         uint16 // ← 16-bit so 0x0123 & 0x0456 fit
+		ln         uint16
 	}{
-		{0x83, 0x00, 0x00, 1, 3},       // short string
-		{0xc7, 0x00, 0x00, 1, 7},       // short list
-		{0xb9, 0x01, 0x23, 3, 0x0123},  // long  string
-		{0xf9, 0x04, 0x56, 3, 0x0456},  // long  list
+		{0x83, 0x00, 0x00, 1, 3},
+		{0xc7, 0x00, 0x00, 1, 7},
+		{0xb9, 0x01, 0x23, 3, 0x0123},
+		{0xf9, 0x04, 0x56, 3, 0x0456},
 	}
 
 	for _, tc := range vec {

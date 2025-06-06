@@ -12,14 +12,14 @@ import (
 
 func leafBytes() []uints.U8 {
 	return []uints.U8{
-		mpt.ConstU8(0x83), // RLP header: string-length 3
+		mpt.ConstU8(0x83),
 		mpt.ConstU8(0x12),
 		mpt.ConstU8(0x34),
 		mpt.ConstU8(0x56),
 	}
 }
 
-func leafValue() []uints.U8 {               // 12 34 56
+func leafValue() []uints.U8 {
 	return []uints.U8{
 		mpt.ConstU8(0x12),
 		mpt.ConstU8(0x34),
@@ -35,7 +35,7 @@ func (c *leafHappyCircuit) Define(api frontend.API) error {
 
 	mpt.VerifyBranch(api, mpt.BranchInput{
 		Nodes:   [][]uints.U8{leaf},
-		Path:    nil,          // empty nibble path
+		Path:    nil,
 		LeafVal: leafValue(),
 		Root:    root,
 	})
@@ -43,18 +43,17 @@ func (c *leafHappyCircuit) Define(api frontend.API) error {
 }
 
 type leafWrongValueCircuit struct {
-	V [3]uints.U8 `gnark:",private"` // supplied by the witness
+	V [3]uints.U8 `gnark:",private"`
 }
 
 func (c *leafWrongValueCircuit) Define(api frontend.API) error {
 	leaf := leafBytes()
 	root := mpt.NodeHash(api, leaf)
 
-	// compare the leaf’s payload with the *witness-provided* value
 	mpt.VerifyBranch(api, mpt.BranchInput{
 		Nodes:   [][]uints.U8{leaf},
 		Path:    nil,
-		LeafVal: c.V[:],           // **variables, not constants**
+		LeafVal: c.V[:],
 		Root:    root,
 	})
 	return nil
@@ -75,7 +74,7 @@ func (c *leafWrongRootCircuit) Define(api frontend.API) error {
 	mpt.VerifyBranch(api, mpt.BranchInput{
 		Nodes:   [][]uints.U8{leaf},
 		Path:    nil,
-		LeafVal: c.V[:],           // witness value (correct or not)
+		LeafVal: c.V[:],
 		Root:    bogus,
 	})
 	return nil
@@ -90,7 +89,7 @@ func TestMPTLeafWrongValueFails(t *testing.T) {
 	assert := test.NewAssert(t)
 
 	var w leafWrongValueCircuit
-	w.V[0] = mpt.ConstU8(0x99) // wrong bytes
+	w.V[0] = mpt.ConstU8(0x99)
 	w.V[1] = mpt.ConstU8(0x99)
 	w.V[2] = mpt.ConstU8(0x99)
 
@@ -101,7 +100,6 @@ func TestMPTLeafWrongRootFails(t *testing.T) {
 	assert := test.NewAssert(t)
 
 	var w leafWrongRootCircuit
-	// here the *value is correct* but the root is bogus
 	w.V[0] = mpt.ConstU8(0x12)
 	w.V[1] = mpt.ConstU8(0x34)
 	w.V[2] = mpt.ConstU8(0x56)

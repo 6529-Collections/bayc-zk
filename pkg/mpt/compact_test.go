@@ -9,7 +9,6 @@ import (
 )
 
 type compactCircuit struct {
-	// raw bytes (flags+nibbles) passed as *constants* here for brevity
 	B0, B1 uints.U8
 	Leaf   frontend.Variable `gnark:",public"`
 	Nibs   frontend.Variable `gnark:",public"`
@@ -25,13 +24,12 @@ func (c *compactCircuit) Define(api frontend.API) error {
 }
 
 func TestCompactOddLeaf(t *testing.T) {
-	// 0x31 0x23   => odd *leaf*, nibbles = 0x1 | 0x2 | 0x3
 	assert := test.NewAssert(t)
 	w := compactCircuit{
 		B0:  uints.NewU8(0x31),
 		B1:  uints.NewU8(0x23),
-		Leaf: 1,         // leaf-flag
-		Nibs: 3,         // nibble count
+		Leaf: 1,
+		Nibs: 3,
 	}
 	assert.ProverSucceeded(new(compactCircuit), &w)
 }

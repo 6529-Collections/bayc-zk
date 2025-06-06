@@ -18,7 +18,7 @@ import (
 func mustOpen(path string) *os.File {
 	f, err := os.Open(path)
 	if err != nil {
-		panic(err) // safe in tests
+		panic(err)
 	}
 	return f
 }
@@ -34,8 +34,6 @@ func serveFixture(t *testing.T, filename string) *httptest.Server {
 		_, _ = w.Write(body)
 	}))
 }
-
-/* ---------------- tests ---------------- */
 
 func TestFetchStateRoot(t *testing.T) {
 	srv := serveFixture(t, "header_22566332.json")

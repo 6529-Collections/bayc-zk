@@ -13,20 +13,18 @@ import (
 	"github.com/yourorg/bayczk/internal/keccak"
 )
 
-/* ---------------- circuit ---------------- */
-
 type keccak64Circuit struct {
-	In   [64]uints.U8          // message bytes (constants)
-	Hash [32]frontend.Variable `gnark:",public"` // expected digest bytes
+	In   [64]uints.U8
+	Hash [32]frontend.Variable `gnark:",public"`
 }
 
 func (c *keccak64Circuit) Define(api frontend.API) error {
 	k := keccak.New(api)
 	k.Write(c.In[:])
 
-	out := k.Sum()                       // []uints.U8
+	out := k.Sum()
 	for i := 0; i < 32; i++ {
-		api.AssertIsEqual(out[i].Val, c.Hash[i]) // <- field element vs element
+		api.AssertIsEqual(out[i].Val, c.Hash[i])
 	}
 	return nil
 }
@@ -36,14 +34,13 @@ func (c *keccak64Circuit) Define(api frontend.API) error {
 func TestKeccakGadget64Correct(t *testing.T) {
 	assert := test.NewAssert(t)
 
-	// random 64-byte pre-image
 	var msg [64]byte
 	_, _ = rand.Read(msg[:])
-	digest := crypto.Keccak256(msg[:]) // 32 bytes
+	digest := crypto.Keccak256(msg[:])
 
 	var w keccak64Circuit
 	for i, b := range msg    { w.In[i]  = uints.NewU8(b) }
-	for i, b := range digest { w.Hash[i] = b }           // plain byte
+	for i, b := range digest { w.Hash[i] = b }
 
 	assert.ProverSucceeded(new(keccak64Circuit), &w, test.WithCurves(circuits.Curve()))
 }

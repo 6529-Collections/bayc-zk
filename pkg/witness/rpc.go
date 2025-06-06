@@ -33,14 +33,14 @@ func FetchProof(
 	err := cli.Client().CallContext(
 		ctx, &p, "eth_getProof",
 		contract,
-		[]string{slotKey.Hex()}, // slot list as hex-strings
-		hexutil.Uint64(block),   // block tag
+		[]string{slotKey.Hex()},
+		hexutil.Uint64(block),
 	)
 	return &p, err
 }
 
 func FetchStateRoot(ctx context.Context, cli *ethclient.Client, block uint64) (common.Hash, error) {
-	hexNum := hexutil.Uint64(block) // 0x-prefixed
+	hexNum := hexutil.Uint64(block)
 	var hdr struct {
 		Result struct {
 			StateRoot common.Hash `json:"stateRoot"`
