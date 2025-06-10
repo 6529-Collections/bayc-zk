@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-
 func mustOpen(path string) *os.File {
 	f, err := os.Open(path)
 	if err != nil {
@@ -46,12 +45,14 @@ func TestFetchStateRoot(t *testing.T) {
 	require.NoError(t, err)
 
 	var hdr struct {
-		Result struct{ Root common.Hash } `json:"result"`
+		Result struct {
+			StateRoot string `json:"stateRoot"`
+		} `json:"result"`
 	}
 	require.NoError(t, json.NewDecoder(
 		mustOpen("testdata/header_22566332.json")).Decode(&hdr))
 
-	require.Equal(t, hdr.Result.Root, root)
+	require.Equal(t, common.HexToHash(hdr.Result.StateRoot), root)
 }
 
 func TestFetchProof(t *testing.T) {
@@ -60,7 +61,7 @@ func TestFetchProof(t *testing.T) {
 
 	cli, _ := ethclient.Dial(srv.URL)
 
-	slot     := common.HexToHash("0xad3228b676f7d3cd4284a5443f17f1962b36e491b30a40b2405849e597ba5fb5")
+	slot := common.HexToHash("0xad3228b676f7d3cd4284a5443f17f1962b36e491b30a40b2405849e597ba5fb5")
 	contract := common.HexToAddress("0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d")
 
 	p, err := FetchProof(context.Background(), cli, contract, slot, 22566332)

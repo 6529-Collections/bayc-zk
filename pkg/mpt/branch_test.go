@@ -1,11 +1,15 @@
 package mpt
 
 import (
+	"math/big"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
+	bls381fr "github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
+	bn254fr "github.com/consensys/gnark-crypto/ecc/bn254/fr"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/test"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 type accHappyCircuit struct {
@@ -26,10 +30,24 @@ func (c *accHappyCircuit) Define(api frontend.API) error {
 /* ───────────────────────────── test ──────────────────────────── */
 
 func TestAccountLeafHappy(t *testing.T) {
-	assert := test.NewAssert(t)
-	assert.ProverSucceeded(
-		&accHappyCircuit{},
-		&accHappyCircuit{Root: 0xBC},
-		test.WithCurves(ecc.BN254, ecc.BLS12_381),
-	)
+	digest := crypto.Keccak256([]byte{0})
+	curves := []struct {
+		id  ecc.ID
+		mod *big.Int
+	}{
+		{ecc.BN254, bn254fr.Modulus()},
+		{ecc.BLS12_381, bls381fr.Modulus()},
+	}
+
+	for _, c := range curves {
+		root := new(big.Int).SetBytes(digest)
+		root.Mod(root, c.mod)
+
+		assert := test.NewAssert(t)
+		assert.ProverSucceeded(
+			&accHappyCircuit{},
+			&accHappyCircuit{Root: root},
+			test.WithCurves(c.id),
+		)
+	}
 }
