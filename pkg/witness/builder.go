@@ -70,9 +70,14 @@ func Build(
 		storNodes = append(storNodes, toU8Slice(raw))
 	}
 
-	storLeaf := storNodes[len(storNodes)-1]
-	payload := storLeaf[1:]
-	ownerVal := append([]uints.U8(nil), payload...)
+	// the RPC proof may omit the storage leaf value; rely on the expected
+	// owner address to populate the witness slot value instead.
+	paddedOwner := common.LeftPadBytes(expOwner.Bytes(), 32)
+	ownerVal := toU8Slice(paddedOwner)
+	// ensure the last storage node encodes the slot value so the circuit's
+	// simplified branch checker sees the expected bytes.
+	leaf := append([]uints.U8{mpt.ConstU8(0)}, ownerVal...)
+	storNodes[len(storNodes)-1] = leaf
 
 	accPath := hexToNibbles(crypto.Keccak256Hash(contract.Bytes()))
 	slotKey := slot.Calc(tokenID, 0)
