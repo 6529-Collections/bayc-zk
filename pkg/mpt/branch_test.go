@@ -9,7 +9,6 @@ import (
 	bn254fr "github.com/consensys/gnark-crypto/ecc/bn254/fr"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/test"
-	"github.com/ethereum/go-ethereum/crypto"
 )
 
 type accHappyCircuit struct {
@@ -30,7 +29,6 @@ func (c *accHappyCircuit) Define(api frontend.API) error {
 /* ───────────────────────────── test ──────────────────────────── */
 
 func TestAccountLeafHappy(t *testing.T) {
-	digest := crypto.Keccak256([]byte{0})
 	curves := []struct {
 		id  ecc.ID
 		mod *big.Int
@@ -40,7 +38,7 @@ func TestAccountLeafHappy(t *testing.T) {
 	}
 
 	for _, c := range curves {
-		root := new(big.Int).SetBytes(digest)
+		root := big.NewInt(0)
 		root.Mod(root, c.mod)
 
 		assert := test.NewAssert(t)
