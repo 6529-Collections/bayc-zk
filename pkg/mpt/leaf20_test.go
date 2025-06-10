@@ -1,6 +1,7 @@
 package mpt
 
 import (
+	"math/big"
 	"testing"
 
 	"github.com/consensys/gnark/frontend"
@@ -17,28 +18,30 @@ func leaf20(value [20]byte) []uints.U8 {
 	return out
 }
 
-type leaf20Happy struct{}
+type leaf20Happy struct {
+	Root frontend.Variable `gnark:",public"`
+}
 
 func (c *leaf20Happy) Define(api frontend.API) error {
 	val := [20]byte{1, 2, 3}
 	leaf := leaf20(val)
-	root := NodeHash(api, leaf)
 
 	VerifyBranch(api, BranchInput{
 		Nodes:   [][]uints.U8{leaf},
 		Path:    nil,
 		LeafVal: leaf[1:],
-		Root:    root,
+		Root:    c.Root,
 	})
 	return nil
 }
 
-type leaf20Bad struct{}
+type leaf20Bad struct {
+	Root frontend.Variable
+}
 
 func (c *leaf20Bad) Define(api frontend.API) error {
 	val := [20]byte{1, 2, 3}
 	leaf := leaf20(val)
-	root := NodeHash(api, leaf)
 
 	bad := make([]uints.U8, 20)
 	copy(bad, leaf[1:])
@@ -48,13 +51,21 @@ func (c *leaf20Bad) Define(api frontend.API) error {
 		Nodes:   [][]uints.U8{leaf},
 		Path:    nil,
 		LeafVal: bad,
-		Root:    root,
+		Root:    c.Root,
 	})
 	return nil
 }
 
 func TestLeaf20Payload(t *testing.T) {
+	// compute expected root for the fixed leaf value
+	leafBytes := make([]byte, 21)
+	leafBytes[0] = 0x94
+	leafBytes[1] = 1
+	leafBytes[2] = 2
+	leafBytes[3] = 3
+	root := new(big.Int).SetBytes(leafBytes)
+
 	assert := test.NewAssert(t)
-	assert.ProverSucceeded(new(leaf20Happy), &leaf20Happy{})
-	assert.ProverFailed(new(leaf20Bad),   &leaf20Bad{})
+	assert.ProverSucceeded(new(leaf20Happy), &leaf20Happy{Root: root})
+	assert.ProverFailed(new(leaf20Bad), &leaf20Bad{Root: root})
 }

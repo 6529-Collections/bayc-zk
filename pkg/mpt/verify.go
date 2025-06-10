@@ -31,7 +31,7 @@ type BranchInput struct {
 }
 
 func VerifyBranch(api frontend.API, in BranchInput) frontend.Variable {
-	api.AssertIsEqual(NodeHash(api, in.Nodes[0]), in.Root)
+	api.AssertIsEqual(HashNode(api, in.Nodes[0]), in.Root)
 
 	leaf := in.Nodes[len(in.Nodes)-1]
 	if len(in.LeafVal) != 0 {
