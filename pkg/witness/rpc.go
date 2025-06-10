@@ -42,12 +42,10 @@ func FetchProof(
 func FetchStateRoot(ctx context.Context, cli *ethclient.Client, block uint64) (common.Hash, error) {
 	hexNum := hexutil.Uint64(block)
 	var hdr struct {
-		Result struct {
-			StateRoot common.Hash `json:"stateRoot"`
-		} `json:"result"`
+		StateRoot string `json:"stateRoot"`
 	}
 	if err := cli.Client().CallContext(ctx, &hdr, "eth_getBlockByNumber", hexNum, false); err != nil {
 		return common.Hash{}, err
 	}
-	return hdr.Result.StateRoot, nil
+	return common.HexToHash(hdr.StateRoot), nil
 }
