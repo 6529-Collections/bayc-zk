@@ -18,13 +18,12 @@ func HashNode(api frontend.API, raw []uints.U8) frontend.Variable {
 		}
 		return acc
 	}
-
-	h := keccak.New(api)
-	h.Write(raw)
-	digest := h.Sum()
+	k := keccak.New(api)
+	k.Write(raw)
+	d := k.Sum()
 
 	acc := frontend.Variable(0)
-	for _, b := range digest {
+	for _, b := range d {
 		acc = api.Mul(acc, 256)
 		acc = api.Add(acc, b.Val)
 	}

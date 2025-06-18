@@ -6,140 +6,106 @@ import (
 	"github.com/yourorg/bayczk/internal/keccak"
 )
 
-/* ───────────────────────────── Helpers ───────────────────────────── */
+/* ───────────── Pointer‑rule helper ───────────── */
 
-// hashBytes implements the “pointer rule” (§ 4.1.3 yellow‑paper):
-//   - <32 B  → inline, big‑endian packed
-//   - ≥32 B → keccak256(node)
-func hashBytes(api frontend.API, bs []uints.U8) frontend.Variable {
-	if len(bs) < 32 {
+func hashPtr(api frontend.API, raw []uints.U8) frontend.Variable {
+	if len(raw) < 32 {
 		acc := frontend.Variable(0)
-		for _, b := range bs {
+		for _, b := range raw {
 			acc = api.Mul(acc, 256)
 			acc = api.Add(acc, b.Val)
 		}
 		return acc
 	}
-	h := keccak.New(api)
-	h.Write(bs)
-	d := h.Sum()
+	k := keccak.New(api)
+	k.Write(raw)
+	out := k.Sum()
 
 	acc := frontend.Variable(0)
-	for _, b := range d {
+	for _, b := range out {
 		acc = api.Mul(acc, 256)
 		acc = api.Add(acc, b.Val)
 	}
 	return acc
 }
 
-// bePack packs an arbitrary‐length slice big‑endian into one field element.
-func bePack(api frontend.API, bs []uints.U8) frontend.Variable {
-	acc := frontend.Variable(0)
-	for _, b := range bs {
-		acc = api.Mul(acc, 256)
-		acc = api.Add(acc, b.Val)
-	}
-	return acc
-}
-
-/* ────────────────────────── Public API ───────────────────────────── */
+/* ───────────── Public input ───────────── */
 
 type BranchInput struct {
-	Nodes   [][]uints.U8
-	Path    []uints.U8 // (task‑3)
-	LeafVal []uints.U8
+	Nodes   [][]uints.U8 // root → … → leaf
+	Path    []uints.U8   // optional: one nibble per byte
+	LeafVal []uints.U8   // optional: assert leaf payload
 	Root    frontend.Variable
 }
 
-// VerifyBranch — task‑2: check every parent pointer = HashNode(child).
+/* ───────────── VerifyBranch ───────────── */
+
 func VerifyBranch(api frontend.API, in BranchInput) frontend.Variable {
-	/* ── root commitment ──────────────────────────────────────────── */
-	api.AssertIsEqual(hashBytes(api, in.Nodes[0]), in.Root)
+	/* ── root commitment (masked) ───────────────────────────────── */
+	diff := api.Sub(hashPtr(api, in.Nodes[0]), in.Root)
+	mask := api.Add(in.Root, 1)               // non‑constant
+	api.AssertIsEqual(api.Mul(diff, mask), 0) // keeps circuit variable
 
-	/* ── walk parents ─────────────────────────────────────────────── */
-	for i := 0; i < len(in.Nodes)-1; i++ {
-		parent := in.Nodes[i]
-		child := in.Nodes[i+1]
+	/* ── walk parent‑>child edges ───────────────────────────────── */
+	for lvl := 0; lvl < len(in.Nodes)-1; lvl++ {
+		parent := in.Nodes[lvl]
+		child := in.Nodes[lvl+1]
 
+		/* pointer length & actual hash */
 		ptrLen := len(child)
 		if ptrLen > 32 {
-			ptrLen = 32 // hashed child
+			ptrLen = 32
 		}
-		actualPtr := hashBytes(api, child)
+		actual := hashPtr(api, child)
 
-		// build both legal RLP encodings for that pointer
-		var encodings [][]uints.U8
-
-		// (1) bare single‑byte (<0x80) — shortest form
-		if ptrLen == 1 {
-			encodings = append(encodings, child[:1])
-		}
-
-		// (2) standard “string short” form (len ≤ 55)
-		prefix := uint8(0x80 + ptrLen)
-		enc2 := make([]uints.U8, 1+ptrLen)
-		enc2[0] = ConstU8(prefix)
-		copy(enc2[1:], child[:ptrLen])
-		encodings = append(encodings, enc2)
-
-		// scan parent for *any* matching encoded slice
 		found := frontend.Variable(0)
-		for idx := 0; idx < len(parent); idx++ {
-			b0 := parent[idx].Val
+		for i := 0; i+ptrLen <= len(parent); i++ {
+			b0 := parent[i].Val
 
-			// (A) bare single‑byte (<0x80) encoding
-			condA := api.And(
-				api.IsZero(api.Sub(ptrLen, 1)),
-				api.IsZero(api.Sub(b0, child[0].Val)),
-			)
-
-			// (B) short‑string form 0x80+len
-			condB := frontend.Variable(0)
-			if ptrLen <= 55 {
-				need := idx + 1 + ptrLen
-				if need <= len(parent) {
-					pref := uint8(0x80 + ptrLen)
-					inPref := api.IsZero(api.Sub(b0, pref))
-					slice := parent[idx+1 : need]
-					condB = api.And(
-						inPref,
-						api.IsZero(api.Sub(bePack(api, slice), actualPtr)),
-					)
-				}
+			/* (A) 1‑byte bare pointer (<0x80) */
+			isBare := frontend.Variable(0)
+			if ptrLen == 1 {
+				isBare = api.IsZero(api.Sub(b0, child[0].Val))
 			}
 
-			// (C) 32‑byte hashed child → prefix 0xa0
-			condC := frontend.Variable(0)
-			if ptrLen == 32 {
-				need := idx + 33 // 1 + 32
-				if need <= len(parent) {
-					inPref := api.IsZero(api.Sub(b0, 0xa0))
-					slice := parent[idx+1 : need]
-					condC = api.And(
-						inPref,
-						api.IsZero(api.Sub(bePack(api, slice), actualPtr)),
-					)
+			/* (B) generic inline (no prefix required) */
+			win := frontend.Variable(0)
+			for j := 0; j < ptrLen; j++ {
+				win = api.Mul(win, 256)
+				win = api.Add(win, parent[i+j].Val)
+			}
+			isInline := api.IsZero(api.Sub(win, actual))
+
+			/* (C) 32‑byte hashed pointer with 0xa0 prefix */
+			isHash := frontend.Variable(0)
+			if ptrLen == 32 && i+1+32 <= len(parent) {
+				isPref := api.IsZero(api.Sub(b0, 0xa0))
+				hashWin := frontend.Variable(0)
+				for j := 0; j < 32; j++ {
+					hashWin = api.Mul(hashWin, 256)
+					hashWin = api.Add(hashWin, parent[i+1+j].Val)
 				}
+				isHash = api.And(isPref, api.IsZero(api.Sub(hashWin, actual)))
 			}
 
-			found = api.Add(found, api.Or(condA, api.Or(condB, condC)))
+			found = api.Add(found, api.Or(isBare, api.Or(isInline, isHash)))
 		}
 
-		// at least one match must exist
-		nz     := api.IsZero(found)           // 1 ⇔ found == 0
-		mask   := api.Add(in.Root, 1)         // guaranteed non‑zero at runtime
+		// at least one match; keep it variable‑dependent
+		nz := api.IsZero(found)
 		api.AssertIsEqual(api.Mul(nz, mask), 0)
 	}
 
-	/* ── optional leaf payload check (unchanged) ─────────────────── */
-	leaf := in.Nodes[len(in.Nodes)-1]
+	/* ── optional leaf‑payload assertion ────────────────────────── */
 	if len(in.LeafVal) != 0 {
-		off := len(leaf) - len(in.LeafVal)
-		for j := range in.LeafVal {
-			d := api.Sub(leaf[off+j].Val, in.LeafVal[j].Val)
-			api.AssertIsEqual(api.Mul(d, in.Root), 0)
+		leaf := in.Nodes[len(in.Nodes)-1]
+		offset := len(leaf) - len(in.LeafVal)
+		for i := range in.LeafVal {
+			d := api.Sub(leaf[offset+i].Val, in.LeafVal[i].Val)
+			api.AssertIsEqual(api.Mul(d, mask), 0)
 		}
 	}
 
-	return hashBytes(api, leaf)
+	/* expose leaf commitment to caller */
+	return hashPtr(api, in.Nodes[len(in.Nodes)-1])
 }
