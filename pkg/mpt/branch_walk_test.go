@@ -23,13 +23,14 @@ func extensionNode() []uints.U8 {
 
 func branchNode(ext []uints.U8) []uints.U8 {
 	b := []byte{0xd5}
-	for i := 0; i < 16; i++ {
+	for i := 0; i < 15; i++ { // Only 15 empty slots (0-14)
 		b = append(b, 0x80)
 	}
-	b = append(b, 0x84)
+	b = append(b, 0x84) // Extension at index 15
 	for _, u := range ext {
 		b = append(b, byte(u.Val.(int)))
 	}
+	b = append(b, 0x80) // Empty slot at index 16
 	return BytesToU8s(b)
 }
 
