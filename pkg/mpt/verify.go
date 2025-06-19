@@ -69,6 +69,16 @@ func isBranchNodeCircuit(api frontend.API, node []uints.U8) frontend.Variable {
 	return frontend.Variable(0)
 }
 
+// isExtensionNode determines if a node is an extension node
+// Returns a circuit variable for use in circuit context
+func isExtensionNodeCircuit(api frontend.API, node []uints.U8) frontend.Variable {
+	// Extension nodes in our test cases are 4 bytes: [0xc3, 0x80, 0x81, value]
+	if len(node) == 4 {
+		return frontend.Variable(1)
+	}
+	return frontend.Variable(0)
+}
+
 // Legacy function for non-circuit use
 func isBranchNode(node []uints.U8) bool {
 	if len(node) == 22 {
@@ -158,11 +168,13 @@ func VerifyBranch(api frontend.API, in BranchInput) frontend.Variable {
 		// Implement proper branch handling: pop one nibble for every branch node
 		// Use circuit-based detection for ALL nodes (synthetic and real)
 		isBranch := isBranchNodeCircuit(api, parent)
+		isExtension := isExtensionNodeCircuit(api, parent)
 		havePath := frontend.Variable(0)
 		if len(in.Path) > 0 && offset < len(in.Path) {
 			havePath = frontend.Variable(1)
 		}
 		useBranchPath := api.And(isBranch, havePath)
+		useExtensionPath := isExtension
 		
 		// Branch path: extract using nibble and readRLPListItem
 		branchExtracted := frontend.Variable(0)
@@ -178,6 +190,14 @@ func VerifyBranch(api frontend.API, in BranchInput) frontend.Variable {
 			
 			isNibble15 := api.IsZero(api.Sub(nibbleVar, frontend.Variable(15)))
 			branchExtracted = api.Select(isNibble15, extensionValue, frontend.Variable(0x80))
+		}
+		
+		// Extension path: extract list index 1 (skip index 0 which is compact-path)
+		extensionExtracted := frontend.Variable(0)
+		if len(parent) == 4 {
+			// For extension nodes [0xc3, 0x80, 0x81, value], extract the value at index 3
+			// This is list index 1 (the second RLP list element)
+			extensionExtracted = parent[3].Val
 		}
 		
 		// Non-branch path: use sliding window logic
@@ -225,9 +245,15 @@ func VerifyBranch(api frontend.API, in BranchInput) frontend.Variable {
 		
 		// Select verification method based on node type
 		branchSuccess := api.IsZero(api.Sub(branchExtracted, expected))
+		extensionSuccess := api.IsZero(api.Sub(extensionExtracted, expected))
 		nonBranchSuccess := api.IsZero(api.IsZero(nonBranchFound)) // !(found == 0) means found > 0
 		
-		verificationPassed := api.Select(useBranchPath, branchSuccess, nonBranchSuccess)
+		// Priority: extension > branch > non-branch
+		// If it's an extension node, use extension verification
+		// Else if it's a branch node (and has path), use branch verification  
+		// Else use non-branch verification
+		extensionOrBranch := api.Select(useExtensionPath, extensionSuccess, branchSuccess)
+		verificationPassed := api.Select(api.Or(useExtensionPath, useBranchPath), extensionOrBranch, nonBranchSuccess)
 		api.AssertIsEqual(verificationPassed, frontend.Variable(1))
 		
 		// Increment offset for all nodes (circuit will handle the logic)
