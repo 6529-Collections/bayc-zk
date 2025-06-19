@@ -13,40 +13,25 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-/* -------------------------------------------------------------------------- */
-/*                                test fixtures                               */
-/* -------------------------------------------------------------------------- */
-
-// leaf  ── a single-byte RLP string with value 0xaa
 func leafNode() []uints.U8 {
 	return []uints.U8{b(0xaa)}
 }
 
-// extension  ── RLP list [ "", <leaf-ptr> ]
-//              bytes: 0xc3  0x80        0x81 0xaa
 func extensionNode() []uints.U8 {
 	return BytesToU8s([]byte{0xc3, 0x80, 0x81, 0xaa})
 }
 
-// branch     ── 17-item list, 16 × empty, last = <ext-ptr>
-//              payload = 16*0x80 ‖ 0x84 <ext>
-//              header = 0xd5 (0xc0 + 0x15)
 func branchNode(ext []uints.U8) []uints.U8 {
 	b := []byte{0xd5}
-	for i := 0; i < 16; i++ { // sixteen empties
+	for i := 0; i < 16; i++ {
 		b = append(b, 0x80)
 	}
-	// pointer string (short form, 4-byte payload)
-	b = append(b, 0x84) // 0x80 + 4
+	b = append(b, 0x84)
 	for _, u := range ext {
 		b = append(b, byte(u.Val.(int)))
 	}
 	return BytesToU8s(b)
 }
-
-/* -------------------------------------------------------------------------- */
-/*                                   circuit                                  */
-/* -------------------------------------------------------------------------- */
 
 type walkCircuit struct {
 	Root frontend.Variable `gnark:",public"`
@@ -59,16 +44,12 @@ func (c *walkCircuit) Define(api frontend.API) error {
 
 	VerifyBranch(api, BranchInput{
 		Nodes:   [][]uints.U8{br, ext, leaf},
-		Path:    nil, // nibble checks are task-3
-		LeafVal: leaf, // still allowed
+		Path:    nil,
+		LeafVal: leaf,
 		Root:    c.Root,
 	})
 	return nil
 }
-
-/* -------------------------------------------------------------------------- */
-/*                                happy / bad                                 */
-/* -------------------------------------------------------------------------- */
 
 func TestBranchWalkHappy(t *testing.T) {
 	//leaf := leafNode()
@@ -104,9 +85,8 @@ type badCircuit struct {
 }
 
 func (c *badCircuit) Define(api frontend.API) error {
-	// identical structure, but corrupt the leaf
 	badLeaf := []uints.U8{b(0xbb)}
-	ext     := BytesToU8s([]byte{0xc3, 0x80, 0x81, 0xaa}) // unchanged
+	ext     := BytesToU8s([]byte{0xc3, 0x80, 0x81, 0xaa})
 	br      := branchNode(ext)
 
 	VerifyBranch(api, BranchInput{
@@ -135,27 +115,19 @@ func TestBranchWalkBrokenChildHashFails(t *testing.T) {
 	)
 }
 
-/* -------------------------------------------------------------------------- */
-/*                         compile-time sanity guard                          */
-/* -------------------------------------------------------------------------- */
-
 func TestPointerExtractionMatchesGo(t *testing.T) {
-	// quick non-constraint check – shows that the simple “last N bytes”
-	// logic indeed yields the required pointer value.
-	//leaf  := []byte{0xaa}
 	ext   := []byte{0xc3, 0x80, 0x81, 0xaa}
 	br    := []byte{0xd5}
 	for i := 0; i < 16; i++ { br = append(br, 0x80) }
 	br = append(br, 0x84)
 	br = append(br, ext...)
 
-	goPtr := big.NewInt(0).SetBytes(ext)        // HashNode(child) (<32 bytes)
+	goPtr := big.NewInt(0).SetBytes(ext)
 	last4 := big.NewInt(0).SetBytes(br[len(br)-4:])
 
 	if goPtr.Cmp(last4) != 0 {
 		t.Fatalf("expected %x, got %x", goPtr, last4)
 	}
-	// and the keccak variant (len>=32) exercising the other branch:
 	dummy := make([]byte, 33)
 	goHash := crypto.Keccak256(dummy)
 	if len(goHash) != 32 {
