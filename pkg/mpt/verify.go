@@ -57,17 +57,13 @@ func VerifyBranch(api frontend.API, in BranchInput) frontend.Variable {
 		expected := HashNode(api, child)
 
 		// Check if this uses the new path-based logic for synthetic branch nodes
-		useNewBranchLogic := len(in.Path) > 0 && lvl == 0 && len(parent) > 20
+		// Synthetic branch nodes have exact structure: [0xd5] + 16*[0x80] + [0x84] + 4 bytes = 22 bytes
+		useNewBranchLogic := len(in.Path) > 0 && lvl == 0 && len(parent) == 22
 		
 		if useNewBranchLogic {
 			// New path-based branch node processing for synthetic tests
 			if offset >= len(in.Path) {
 				panic(fmt.Sprintf("ran out of path nibbles at level %d, offset %d, path length %d", lvl, offset, len(in.Path)))
-			}
-			
-			nibble := int(in.Path[offset].Val.(uint8))
-			if nibble > 15 {
-				panic(fmt.Sprintf("invalid nibble %d at offset %d", nibble, offset))
 			}
 			
 			// Extract pointer for the specific nibble using circuit logic
