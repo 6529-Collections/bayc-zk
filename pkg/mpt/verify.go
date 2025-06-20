@@ -3,6 +3,7 @@ package mpt
 import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/uints"
+	"github.com/yourorg/bayczk/internal/keccak"
 )
 
 // MPT verification constants
@@ -22,7 +23,7 @@ const (
 	RLP_SINGLE_BYTE_MAX = 0x80  // Single byte elements: 0x00-0x7f
 	RLP_SHORT_STRING_MAX = 0xb8 // Short strings: 0x80-0xb7  
 	RLP_LONG_STRING_MAX = 0xc0  // Long strings: 0xb8-0xbf
-	MAX_HASH_BYTES = 32         // Maximum bytes for hash extraction
+	MAX_HASH_BYTES = 64         // Maximum bytes for hash extraction
 )
 
 type BranchInput struct {
@@ -129,7 +130,7 @@ func rlpListWalk(api frontend.API, node []uints.U8, elementIndex int) (start, le
 func decodePointer(api frontend.API, node []uints.U8, elementStart, elementLength frontend.Variable, expectedChild frontend.Variable) {
 	// Extract a bounded slice around the element for analysis
 	// We need at most 9 bytes for RLP header + some payload bytes for analysis
-	maxExamineBytes := 41 // 9 bytes max RLP header + 32 bytes max hash
+	maxExamineBytes := 73 // 9 bytes max RLP header + 64 bytes max hash
 	if len(node) < maxExamineBytes {
 		maxExamineBytes = len(node)
 	}
@@ -225,38 +226,127 @@ func decodePointer(api frontend.API, node []uints.U8, elementStart, elementLengt
 	// Handle single byte case
 	singleByteHash := HashNode(api, singleByteSlice)
 	
-	// Handle string cases - need to create slices of exact payload length
-	// Since circuits need fixed-size arrays at compile time, we'll handle common lengths
+	// Handle string cases with proper hashed pointer support
+	// For payloads >= 32 bytes, we need to use Keccak hashing like HashNode does
 	stringHash := frontend.Variable(0)
 	
-	// Create slices for common payload lengths (1-10 bytes)
-	// This handles most practical cases while keeping circuit size manageable
+	// Determine if we need Keccak hashing (payload length >= 32)
+	needsKeccak := isLess(api, frontend.Variable(31), stringPayloadLength) // 31 < payloadLength, i.e., payloadLength >= 32
+	
+	// For Keccak case: hash specific-length payloads using Keccak gadget
+	keccakHash := frontend.Variable(0)
+	
+	// Handle common large payload sizes with exact-length arrays
+	isLength32 := api.IsZero(api.Sub(stringPayloadLength, frontend.Variable(32)))
+	isLength33 := api.IsZero(api.Sub(stringPayloadLength, frontend.Variable(33)))
+	isLength64 := api.IsZero(api.Sub(stringPayloadLength, frontend.Variable(64)))
+	
+	// Compute Keccak for 32-byte payload
+	var keccak32Hash frontend.Variable
+	if MAX_HASH_BYTES >= 32 {
+		payload32 := make([]uints.U8, 32)
+		copy(payload32, payload[:32])
+		k32 := keccak.New(api)
+		k32.Write(payload32)
+		d32 := k32.Sum()
+		acc32 := frontend.Variable(0)
+		for _, b := range d32 {
+			acc32 = api.Mul(acc32, 256)
+			acc32 = api.Add(acc32, b.Val)
+		}
+		keccak32Hash = acc32
+	}
+	
+	// Compute Keccak for 33-byte payload
+	var keccak33Hash frontend.Variable
+	if MAX_HASH_BYTES >= 33 {
+		payload33 := make([]uints.U8, 33)
+		copy(payload33, payload[:33])
+		k33 := keccak.New(api)
+		k33.Write(payload33)
+		d33 := k33.Sum()
+		acc33 := frontend.Variable(0)
+		for _, b := range d33 {
+			acc33 = api.Mul(acc33, 256)
+			acc33 = api.Add(acc33, b.Val)
+		}
+		keccak33Hash = acc33
+	} else {
+		keccak33Hash = frontend.Variable(0)
+	}
+	
+	// Compute Keccak for 64-byte payload
+	var keccak64Hash frontend.Variable
+	if MAX_HASH_BYTES >= 64 {
+		payload64 := make([]uints.U8, 64)
+		copy(payload64, payload[:64])
+		k64 := keccak.New(api)
+		k64.Write(payload64)
+		d64 := k64.Sum()
+		acc64 := frontend.Variable(0)
+		for _, b := range d64 {
+			acc64 = api.Mul(acc64, 256)
+			acc64 = api.Add(acc64, b.Val)
+		}
+		keccak64Hash = acc64
+	} else {
+		keccak64Hash = frontend.Variable(0)
+	}
+	
+	// Select the appropriate Keccak hash based on length
+	keccakHash = api.Select(isLength32, keccak32Hash,
+		api.Select(isLength33, keccak33Hash,
+			api.Select(isLength64, keccak64Hash, frontend.Variable(0)))) // Specific lengths only
+	
+	// For direct integer case: create appropriately sized payload and compute directly
+	// We'll support common lengths and use a more general approach for the rest
+	directHash := frontend.Variable(0)
+	
+	// For lengths 1-31, we can compute directly as big-endian integers
+	// Since HashNode requires fixed-size arrays at compile time, we'll create different sized arrays
+	
+	// Create payload slices for different common lengths
 	payload1 := []uints.U8{payload[0]}
 	payload2 := []uints.U8{payload[0], payload[1]}
 	payload3 := []uints.U8{payload[0], payload[1], payload[2]}
 	payload4 := []uints.U8{payload[0], payload[1], payload[2], payload[3]}
 	payload5 := []uints.U8{payload[0], payload[1], payload[2], payload[3], payload[4]}
 	
-	// Compute hashes for different lengths
+	// For longer payloads (6-31 bytes), we need a different approach since HashNode
+	// checks compile-time len(raw) < 32. We'll compute the integer directly in the circuit.
+	payloadAsInteger := frontend.Variable(0)
+	for i := 0; i < 31; i++ { // Support up to 31 bytes for direct integer conversion
+		withinPayload := isLess(api, frontend.Variable(i), stringPayloadLength)
+		byteValue := api.Select(withinPayload, payload[i].Val, frontend.Variable(0))
+		payloadAsInteger = api.Add(api.Mul(payloadAsInteger, 256), byteValue)
+	}
+	
+	// Compute hashes for small fixed-size arrays using HashNode
 	hash1 := HashNode(api, payload1)
 	hash2 := HashNode(api, payload2)
 	hash3 := HashNode(api, payload3)
 	hash4 := HashNode(api, payload4)
 	hash5 := HashNode(api, payload5)
 	
-	// Select the appropriate hash based on payload length
+	// Select the appropriate direct hash based on payload length
 	isLength1 := api.IsZero(api.Sub(stringPayloadLength, frontend.Variable(1)))
 	isLength2 := api.IsZero(api.Sub(stringPayloadLength, frontend.Variable(2)))
 	isLength3 := api.IsZero(api.Sub(stringPayloadLength, frontend.Variable(3)))
 	isLength4 := api.IsZero(api.Sub(stringPayloadLength, frontend.Variable(4)))
 	isLength5 := api.IsZero(api.Sub(stringPayloadLength, frontend.Variable(5)))
+	isLengthBig := isLess(api, frontend.Variable(5), stringPayloadLength) // > 5 bytes
 	
-	// Chain the selections
-	stringHash = api.Select(isLength1, hash1,
+	// Chain the selections for small lengths, use payloadAsInteger for larger ones
+	smallLengthHash := api.Select(isLength1, hash1,
 		api.Select(isLength2, hash2,
 			api.Select(isLength3, hash3,
 				api.Select(isLength4, hash4,
-					api.Select(isLength5, hash5, hash5))))) // Default to 5-byte for others
+					api.Select(isLength5, hash5, payloadAsInteger)))))
+					
+	directHash = api.Select(isLengthBig, payloadAsInteger, smallLengthHash)
+	
+	// Final selection: use Keccak hash for large payloads, direct hash for small ones
+	stringHash = api.Select(needsKeccak, keccakHash, directHash)
 	
 	// Select the appropriate hash based on element type
 	computedHash = api.Select(isSingleByte, singleByteHash, stringHash)
@@ -269,7 +359,7 @@ func decodePointer(api frontend.API, node []uints.U8, elementStart, elementLengt
 // without performing hash verification. Returns the payload bytes and length.
 func extractPointerPayload(api frontend.API, node []uints.U8, elementStart, elementLength frontend.Variable) ([]uints.U8, frontend.Variable) {
 	// Extract element bytes for analysis
-	maxExamineBytes := 41 // 9 bytes max RLP header + 32 bytes max hash
+	maxExamineBytes := 73 // 9 bytes max RLP header + 64 bytes max hash
 	if len(node) < maxExamineBytes {
 		maxExamineBytes = len(node)
 	}
