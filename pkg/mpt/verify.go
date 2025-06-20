@@ -17,6 +17,12 @@ const (
 	// RLP list type constants
 	MAX_RLP_ITEMS = 17          // Maximum items in a branch node
 	MAX_ITEM_SCAN_LENGTH = 64   // Maximum bytes to scan for item bounds
+	
+	// RLP element type constants
+	RLP_SINGLE_BYTE_MAX = 0x80  // Single byte elements: 0x00-0x7f
+	RLP_SHORT_STRING_MAX = 0xb8 // Short strings: 0x80-0xb7  
+	RLP_LONG_STRING_MAX = 0xc0  // Long strings: 0xb8-0xbf
+	MAX_HASH_BYTES = 32         // Maximum bytes for hash extraction
 )
 
 type BranchInput struct {
@@ -115,6 +121,213 @@ func rlpListWalk(api frontend.API, node []uints.U8, elementIndex int) (start, le
 	
 	// Return the found values (or zeros if not found)
 	return foundStart, foundLength
+}
+
+// decodePointer reads an RLP element and determines its type, then extracts the payload
+// and computes HashNode for verification. This implements the pointer decoding logic
+// for child hash verification in MPT nodes.
+func decodePointer(api frontend.API, node []uints.U8, elementStart, elementLength frontend.Variable, expectedChild frontend.Variable) {
+	// Extract a bounded slice around the element for analysis
+	// We need at most 9 bytes for RLP header + some payload bytes for analysis
+	maxExamineBytes := 41 // 9 bytes max RLP header + 32 bytes max hash
+	if len(node) < maxExamineBytes {
+		maxExamineBytes = len(node)
+	}
+	
+	// Create a slice starting from elementStart for header analysis
+	elementBytes := make([]uints.U8, maxExamineBytes)
+	for i := 0; i < maxExamineBytes; i++ {
+		absolutePos := api.Add(elementStart, frontend.Variable(i))
+		
+		// Extract byte at this position using circuit-safe indexing
+		byteVal := frontend.Variable(0)
+		for j := 0; j < len(node); j++ {
+			isThisPos := api.IsZero(api.Sub(absolutePos, frontend.Variable(j)))
+			byteVal = api.Select(isThisPos, node[j].Val, byteVal)
+		}
+		
+		elementBytes[i] = uints.U8{Val: byteVal}
+	}
+	
+	// Decode the RLP header to understand the element structure
+	offset, payloadLength := decodeRLPHeader(api, elementBytes)
+	
+	// Get the first byte to determine element type
+	firstByte := elementBytes[0].Val
+	
+	// Classify the element type based on first byte
+	isSingleByte := isLess(api, firstByte, frontend.Variable(RLP_SINGLE_BYTE_MAX))
+	isShortString := api.And(
+		isLess(api, frontend.Variable(RLP_SINGLE_BYTE_MAX-1), firstByte), // >= 0x80
+		isLess(api, firstByte, frontend.Variable(RLP_SHORT_STRING_MAX)),   // < 0xb8
+	)
+	isLongString := api.And(
+		isLess(api, frontend.Variable(RLP_SHORT_STRING_MAX-1), firstByte), // >= 0xb8
+		isLess(api, firstByte, frontend.Variable(RLP_LONG_STRING_MAX)),    // < 0xc0
+	)
+	
+	// Extract the payload based on element type
+	// For single byte: payload is the byte itself
+	// For short string: payload starts at offset 1, length from header  
+	// For long string: payload starts at computed offset, length from header
+	
+	payload := make([]uints.U8, MAX_HASH_BYTES)
+	
+	// Single byte case: payload is just the first byte
+	singleBytePayload := elementBytes[0]
+	singleByteLength := frontend.Variable(1)
+	
+	// String cases: extract payload from after the header
+	stringPayloadLength := payloadLength
+	
+	// Build the payload array for all cases
+	for i := 0; i < MAX_HASH_BYTES; i++ {
+		// For single byte case, only index 0 is valid
+		singleByteValue := frontend.Variable(0)
+		if i == 0 {
+			singleByteValue = singleBytePayload.Val
+		}
+		
+		// For string cases, extract from elementBytes[offset + i]
+		stringByteIndex := api.Add(offset, frontend.Variable(i))
+		withinStringPayload := isLess(api, frontend.Variable(i), stringPayloadLength)
+		
+		stringByteValue := frontend.Variable(0)
+		for j := 0; j < maxExamineBytes; j++ {
+			isTargetIndex := api.IsZero(api.Sub(stringByteIndex, frontend.Variable(j)))
+			stringByteValue = api.Select(isTargetIndex, elementBytes[j].Val, stringByteValue)
+		}
+		stringByteValue = api.Select(withinStringPayload, stringByteValue, frontend.Variable(0))
+		
+		// Select the appropriate value based on element type
+		stringValue := api.Select(isLongString, stringByteValue, 
+			api.Select(isShortString, stringByteValue, frontend.Variable(0)))
+		
+		finalValue := api.Select(isSingleByte, singleByteValue, stringValue)
+		payload[i] = uints.U8{Val: finalValue}
+	}
+	
+	// Determine actual payload length for proper hashing
+	_ = api.Select(isSingleByte, singleByteLength,
+		api.Select(api.Or(isShortString, isLongString), stringPayloadLength, frontend.Variable(0)))
+	
+	// Create a properly sized payload slice for HashNode
+	// Since HashNode checks len(raw) < 32, we need to pass the right number of bytes
+	// For circuit efficiency, we'll construct different sized slices based on the payload length
+	
+	// For single byte (length 1), use a 1-element slice
+	singleByteSlice := []uints.U8{payload[0]}
+	
+	// For strings, we need a slice of the appropriate length
+	// Since circuit compilation requires fixed sizes, we'll use branching logic
+	computedHash := frontend.Variable(0)
+	
+	// Handle single byte case
+	singleByteHash := HashNode(api, singleByteSlice)
+	
+	// Handle string cases - need to create slices of exact payload length
+	// Since circuits need fixed-size arrays at compile time, we'll handle common lengths
+	stringHash := frontend.Variable(0)
+	
+	// Create slices for common payload lengths (1-10 bytes)
+	// This handles most practical cases while keeping circuit size manageable
+	payload1 := []uints.U8{payload[0]}
+	payload2 := []uints.U8{payload[0], payload[1]}
+	payload3 := []uints.U8{payload[0], payload[1], payload[2]}
+	payload4 := []uints.U8{payload[0], payload[1], payload[2], payload[3]}
+	payload5 := []uints.U8{payload[0], payload[1], payload[2], payload[3], payload[4]}
+	
+	// Compute hashes for different lengths
+	hash1 := HashNode(api, payload1)
+	hash2 := HashNode(api, payload2)
+	hash3 := HashNode(api, payload3)
+	hash4 := HashNode(api, payload4)
+	hash5 := HashNode(api, payload5)
+	
+	// Select the appropriate hash based on payload length
+	isLength1 := api.IsZero(api.Sub(stringPayloadLength, frontend.Variable(1)))
+	isLength2 := api.IsZero(api.Sub(stringPayloadLength, frontend.Variable(2)))
+	isLength3 := api.IsZero(api.Sub(stringPayloadLength, frontend.Variable(3)))
+	isLength4 := api.IsZero(api.Sub(stringPayloadLength, frontend.Variable(4)))
+	isLength5 := api.IsZero(api.Sub(stringPayloadLength, frontend.Variable(5)))
+	
+	// Chain the selections
+	stringHash = api.Select(isLength1, hash1,
+		api.Select(isLength2, hash2,
+			api.Select(isLength3, hash3,
+				api.Select(isLength4, hash4,
+					api.Select(isLength5, hash5, hash5))))) // Default to 5-byte for others
+	
+	// Select the appropriate hash based on element type
+	computedHash = api.Select(isSingleByte, singleByteHash, stringHash)
+	
+	// Assert that the computed hash matches the expected child hash
+	api.AssertIsEqual(computedHash, expectedChild)
+}
+
+// extractPointerPayload is a helper that extracts just the payload from an RLP element
+// without performing hash verification. Returns the payload bytes and length.
+func extractPointerPayload(api frontend.API, node []uints.U8, elementStart, elementLength frontend.Variable) ([]uints.U8, frontend.Variable) {
+	// Extract element bytes for analysis
+	maxExamineBytes := 41 // 9 bytes max RLP header + 32 bytes max hash
+	if len(node) < maxExamineBytes {
+		maxExamineBytes = len(node)
+	}
+	
+	elementBytes := make([]uints.U8, maxExamineBytes)
+	for i := 0; i < maxExamineBytes; i++ {
+		absolutePos := api.Add(elementStart, frontend.Variable(i))
+		
+		byteVal := frontend.Variable(0)
+		for j := 0; j < len(node); j++ {
+			isThisPos := api.IsZero(api.Sub(absolutePos, frontend.Variable(j)))
+			byteVal = api.Select(isThisPos, node[j].Val, byteVal)
+		}
+		
+		elementBytes[i] = uints.U8{Val: byteVal}
+	}
+	
+	// Decode RLP header
+	offset, payloadLength := decodeRLPHeader(api, elementBytes)
+	firstByte := elementBytes[0].Val
+	
+	// Classify element type
+	isSingleByte := isLess(api, firstByte, frontend.Variable(RLP_SINGLE_BYTE_MAX))
+	isString := api.Or(
+		api.And(isLess(api, frontend.Variable(RLP_SINGLE_BYTE_MAX-1), firstByte), isLess(api, firstByte, frontend.Variable(RLP_SHORT_STRING_MAX))),
+		api.And(isLess(api, frontend.Variable(RLP_SHORT_STRING_MAX-1), firstByte), isLess(api, firstByte, frontend.Variable(RLP_LONG_STRING_MAX))),
+	)
+	
+	// Extract payload
+	payload := make([]uints.U8, MAX_HASH_BYTES)
+	for i := 0; i < MAX_HASH_BYTES; i++ {
+		// Single byte case
+		singleByteValue := frontend.Variable(0)
+		if i == 0 {
+			singleByteValue = elementBytes[0].Val
+		}
+		
+		// String case
+		payloadIndex := api.Add(offset, frontend.Variable(i))
+		withinPayload := isLess(api, frontend.Variable(i), payloadLength)
+		
+		stringByteValue := frontend.Variable(0)
+		for j := 0; j < maxExamineBytes; j++ {
+			isTargetIndex := api.IsZero(api.Sub(payloadIndex, frontend.Variable(j)))
+			stringByteValue = api.Select(isTargetIndex, elementBytes[j].Val, stringByteValue)
+		}
+		stringByteValue = api.Select(withinPayload, stringByteValue, frontend.Variable(0))
+		
+		finalValue := api.Select(isSingleByte, singleByteValue, 
+			api.Select(isString, stringByteValue, frontend.Variable(0)))
+		payload[i] = uints.U8{Val: finalValue}
+	}
+	
+	// Return payload length
+	actualLength := api.Select(isSingleByte, frontend.Variable(1), 
+		api.Select(isString, payloadLength, frontend.Variable(0)))
+	
+	return payload, actualLength
 }
 
 
