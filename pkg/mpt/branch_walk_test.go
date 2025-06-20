@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/consensys/gnark/backend"
 	"github.com/consensys/gnark-crypto/ecc"
 	bls381fr "github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
 	bn254fr "github.com/consensys/gnark-crypto/ecc/bn254/fr"
@@ -99,15 +100,8 @@ func (c *badCircuit) Define(api frontend.API) error {
 	return nil
 }
 
-// Note: TestBranchWalkBrokenChildHashFails
-//
-// This test also experiences the compile-time vs proving-time constraint violation issue.
-// The circuit correctly rejects invalid child hashes with "non-equal constant values"
-// but gnark's test framework expects proving-time failures, not compile-time failures.
-//
-// Commented out for CI cleanliness, but the security property is verified to work.
-
-/*
+// TestBranchWalkBrokenChildHashFails verifies that invalid child hashes fail at proving time
+// Enabled after implementing variable-driven equality (groth16 only - plonk catches at compile time)
 func TestBranchWalkBrokenChildHashFails(t *testing.T) {
 	ext := extensionNode()
 	br  := branchNode(ext)
@@ -122,9 +116,9 @@ func TestBranchWalkBrokenChildHashFails(t *testing.T) {
 	assert.ProverFailed(
 		new(badCircuit),
 		&badCircuit{Root: rootInt},
+		test.WithBackends(backend.GROTH16),
 	)
 }
-*/
 
 func TestPointerExtractionMatchesGo(t *testing.T) {
 	ext   := []byte{0xc3, 0x80, 0x81, 0xaa}

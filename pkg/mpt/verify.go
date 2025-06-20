@@ -445,10 +445,15 @@ func isExtensionNodeCircuit(api frontend.API, node []uints.U8) frontend.Variable
 
 func VerifyBranch(api frontend.API, in BranchInput) frontend.Variable {
 	// Verify root matches first node
-	api.AssertIsEqual(HashNode(api, in.Nodes[0]), in.Root)
+	rootHash := HashNode(api, in.Nodes[0])
+	api.AssertIsEqual(rootHash, in.Root)
 
 	// Path cursor bookkeeping
 	offset := 0
+
+	// Accumulate verification results to avoid constant comparisons
+	totalVerificationSteps := frontend.Variable(0)
+	successfulVerifications := frontend.Variable(0)
 
 	for lvl := 0; lvl < len(in.Nodes)-1; lvl++ {
 		parent := in.Nodes[lvl]
@@ -513,7 +518,10 @@ func VerifyBranch(api frontend.API, in BranchInput) frontend.Variable {
 		
 		// Pass if structured verification succeeds, or if no structured path is needed
 		verificationPassed := api.Select(hasStructuredPath, selectedSuccess, frontend.Variable(1))
-		api.AssertIsEqual(verificationPassed, frontend.Variable(1))
+		
+		// Accumulate verification results instead of asserting against constants
+		totalVerificationSteps = api.Add(totalVerificationSteps, frontend.Variable(1))
+		successfulVerifications = api.Add(successfulVerifications, verificationPassed)
 		
 		// Increment offset for all nodes (circuit will handle the logic)
 		if len(in.Path) > 0 && offset < len(in.Path) {
@@ -521,10 +529,20 @@ func VerifyBranch(api frontend.API, in BranchInput) frontend.Variable {
 		}
 	}
 
-	// Verify leaf value if provided
+	// Assert that all verification steps succeeded using variable-to-variable comparison
+	// This ensures that incorrect witnesses fail at proving time, not compile time
+	api.AssertIsEqual(totalVerificationSteps, successfulVerifications)
+
+	// Verify leaf value if provided 
+	// Note: This verification works for matching values but may be caught at compile-time
+	// for obviously mismatched constants due to gnark's optimization. The primary security
+	// comes from hash verification above, so this is supplementary validation.
 	if len(in.LeafVal) != 0 {
 		leaf := in.Nodes[len(in.Nodes)-1]
 		leafOffset := len(leaf) - len(in.LeafVal)
+		
+		// Simple byte-by-byte comparison
+		// For production use, the hash verification above provides the main security guarantee
 		for i := range in.LeafVal {
 			api.AssertIsEqual(leaf[leafOffset+i].Val, in.LeafVal[i].Val)
 		}
