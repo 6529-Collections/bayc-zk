@@ -26,8 +26,6 @@ func (c *accHappyCircuit) Define(api frontend.API) error {
 	return nil
 }
 
-/* ───────────────────────────── test ──────────────────────────── */
-
 func TestAccountLeafHappy(t *testing.T) {
 	curves := []struct {
 		id  ecc.ID

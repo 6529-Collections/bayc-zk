@@ -29,8 +29,11 @@ func DecodeCompact(api frontend.API, in []uints.U8, out []uints.U8) (
 
 	isLeaf = hi1
 	isOdd  := hi0
-	api.AssertIsEqual(hi2, 0)
-	api.AssertIsEqual(hi3, 0)
+	
+	// Use variable-driven equality: compare against frontend.Variable(0) instead of constant 0
+	zero := frontend.Variable(0)
+	api.AssertIsEqual(hi2, zero)
+	api.AssertIsEqual(hi3, zero)
 
 	out[0] = uints.NewU8(0)
 	out[0].Val = api.Select(isOdd, loNib, 0)
