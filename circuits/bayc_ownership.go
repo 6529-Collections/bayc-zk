@@ -22,7 +22,7 @@ type BaycOwnershipCircuit struct {
 
 func (c *BaycOwnershipCircuit) Define(api frontend.API) error {
 
-    // ── Account MPT branch  (stateRoot → account-leaf) ──────────────
+    // ── Account MPT branch verification (stateRoot → account-leaf) ──
     _ = mpt.VerifyBranch(api, mpt.BranchInput{
         Nodes:   c.AccountProof,
         Path:    c.AccountPath,
@@ -30,13 +30,10 @@ func (c *BaycOwnershipCircuit) Define(api frontend.API) error {
         Root:    c.StateRoot,  // public
     })
 
-    // ── Storage branch will be added once VerifyBranch supports it ──
-    // mpt.VerifyBranch(api, mpt.BranchInput{
-    //     Nodes:   c.StorageProof,
-    //     Path:    c.StoragePath,
-    //     LeafVal: c.OwnerBytes,   // 32-byte slot value
-    //     Root:    storageRoot,
-    // })
+    // ── Storage proof stubbed with empty slice for now ──
+    _ = c.StorageProof // Acknowledge but don't use
+    _ = c.StoragePath  // Acknowledge but don't use  
+    _ = c.OwnerBytes   // Acknowledge but don't use
 
     return nil
 }
