@@ -41,12 +41,7 @@ func TestBranchWalkHappy(t *testing.T) {
 	//leaf := leafNode()
 	ext  := extensionNode()
 	br   := branchNode(ext)
-
-	rootBytes := make([]byte, len(br))
-	for i, u := range br {
-		rootBytes[i] = byte(u.Val.(int))
-	}
-	rootInt := new(big.Int).SetBytes(rootBytes)
+	rootInt := testdata.ComputeRootHash(br)
 
 	curves := []struct {
 		id  ecc.ID

@@ -1,6 +1,9 @@
 package testdata
 
-import "github.com/consensys/gnark/std/math/uints"
+import (
+	"math/big"
+	"github.com/consensys/gnark/std/math/uints"
+)
 
 // Test node creation helpers for MPT verification tests.
 // These functions create minimal test nodes that work with the VerifyBranch function.
@@ -38,4 +41,14 @@ func BytesToU8s(bs []byte) []uints.U8 {
 		u8[i] = uints.U8{Val: int(b)}
 	}
 	return u8
+}
+
+// ComputeRootHash converts a U8 node to a big.Int for use as circuit root
+// This eliminates duplicate root hash calculation logic across tests
+func ComputeRootHash(node []uints.U8) *big.Int {
+	rootBytes := make([]byte, len(node))
+	for i, u := range node {
+		rootBytes[i] = byte(u.Val.(int))
+	}
+	return new(big.Int).SetBytes(rootBytes)
 }

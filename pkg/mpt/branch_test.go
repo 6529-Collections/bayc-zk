@@ -75,12 +75,7 @@ func TestBranchExtensionLeafHappy(t *testing.T) {
 	// Use the same pattern as TestBranchWalkHappy
 	ext := testdata.ExtensionNode()
 	br  := testdata.BranchNode(ext)
-
-	rootBytes := make([]byte, len(br))
-	for i, u := range br {
-		rootBytes[i] = byte(u.Val.(int))
-	}
-	rootInt := new(big.Int).SetBytes(rootBytes)
+	rootInt := testdata.ComputeRootHash(br)
 
 	curves := []struct {
 		id  ecc.ID
