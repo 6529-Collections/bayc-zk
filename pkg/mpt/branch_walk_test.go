@@ -11,28 +11,13 @@ import (
 	"github.com/consensys/gnark/std/math/uints"
 	"github.com/consensys/gnark/test"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/yourorg/bayczk/pkg/mpt/testdata"
 )
 
-func leafNode() []uints.U8 {
-	return []uints.U8{b(0xaa)}
-}
-
-func extensionNode() []uints.U8 {
-	return BytesToU8s([]byte{0xc3, 0x80, 0x81, 0xaa})
-}
-
-func branchNode(ext []uints.U8) []uints.U8 {
-	b := []byte{0xd5}
-	for i := 0; i < 15; i++ { // Only 15 empty slots (0-14)
-		b = append(b, 0x80)
-	}
-	b = append(b, 0x84) // Extension at index 15
-	for _, u := range ext {
-		b = append(b, byte(u.Val.(int)))
-	}
-	b = append(b, 0x80) // Empty slot at index 16
-	return BytesToU8s(b)
-}
+// Use centralized test helpers from testdata/helpers.go
+func leafNode() []uints.U8     { return testdata.LeafNode() }
+func extensionNode() []uints.U8 { return testdata.ExtensionNode() }
+func branchNode(ext []uints.U8) []uints.U8 { return testdata.BranchNode(ext) }
 
 type walkCircuit struct {
 	Root frontend.Variable `gnark:",public"`
@@ -45,7 +30,7 @@ func (c *walkCircuit) Define(api frontend.API) error {
 
 	VerifyBranch(api, BranchInput{
 		Nodes:   [][]uints.U8{br, ext, leaf},
-		Path:    []uints.U8{b(0x0f)}, // nibble 15 where extension is placed
+		Path:    []uints.U8{testdata.B(0x0f)}, // nibble 15 where extension is placed
 		LeafVal: leaf,
 		Root:    c.Root,
 	})
@@ -56,12 +41,7 @@ func TestBranchWalkHappy(t *testing.T) {
 	//leaf := leafNode()
 	ext  := extensionNode()
 	br   := branchNode(ext)
-
-	rootBytes := make([]byte, len(br))
-	for i, u := range br {
-		rootBytes[i] = byte(u.Val.(int))
-	}
-	rootInt := new(big.Int).SetBytes(rootBytes)
+	rootInt := testdata.ComputeRootHash(br)
 
 	curves := []struct {
 		id  ecc.ID
@@ -86,13 +66,13 @@ type badCircuit struct {
 }
 
 func (c *badCircuit) Define(api frontend.API) error {
-	badLeaf := []uints.U8{b(0xbb)}
-	ext     := BytesToU8s([]byte{0xc3, 0x80, 0x81, 0xaa})
+	badLeaf := []uints.U8{testdata.B(0xbb)}
+	ext     := testdata.BytesToU8s([]byte{0xc3, 0x80, 0x81, 0xaa})
 	br      := branchNode(ext)
 
 	VerifyBranch(api, BranchInput{
 		Nodes:   [][]uints.U8{br, ext, badLeaf},
-		Path:    []uints.U8{b(0x0f)}, // nibble 15 where extension is placed
+		Path:    []uints.U8{testdata.B(0x0f)}, // nibble 15 where extension is placed
 		LeafVal: badLeaf,
 		Root:    c.Root,
 	})
@@ -150,7 +130,7 @@ func (c *happyNibbleCircuit) Define(api frontend.API) error {
 
 	VerifyBranch(api, BranchInput{
 		Nodes:   [][]uints.U8{br, ext, leaf},
-		Path:    []uints.U8{b(0x0f)}, // nibble 15
+		Path:    []uints.U8{testdata.B(0x0f)}, // nibble 15
 		LeafVal: leaf,
 		Root:    c.Root,
 	})
@@ -187,7 +167,7 @@ func TestBranchWalkHappyNibble(t *testing.T) {
 
 // Note: Wrong-nibble negative test
 // 
-// We verified that providing Path = []uints.U8{b(0x00)} (wrong nibble, should be 15)
+// We verified that providing Path = []uints.U8{testdata.B(0x00)} (wrong nibble, should be 15)
 // correctly triggers a compile-time constraint violation with error:
 // "parse circuit: non-equal constant values"
 // 

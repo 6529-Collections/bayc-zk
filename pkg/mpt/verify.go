@@ -8,18 +8,18 @@ import (
 
 // MPT verification constants
 const (
-	MAX_NIBBLE = 15             // Maximum nibble value (0-15)
-	RLP_EMPTY_BYTE = 0x80       // RLP encoding for empty value
+	MaxNibble = 15             // Maximum nibble value (0-15)
+	RLPEmptyByte = 0x80       // RLP encoding for empty value
 	
 	// RLP list type constants
-	MAX_RLP_ITEMS = 17          // Maximum items in a branch node
-	MAX_ITEM_SCAN_LENGTH = 64   // Maximum bytes to scan for item bounds
+	MaxRLPItems = 17          // Maximum items in a branch node
+	MaxItemScanLength = 64   // Maximum bytes to scan for item bounds
 	
 	// RLP element type constants
-	RLP_SINGLE_BYTE_MAX = 0x80  // Single byte elements: 0x00-0x7f
-	RLP_SHORT_STRING_MAX = 0xb8 // Short strings: 0x80-0xb7  
-	RLP_LONG_STRING_MAX = 0xc0  // Long strings: 0xb8-0xbf
-	MAX_HASH_BYTES = 64         // Maximum bytes for hash extraction
+	RLPSingleByteMax = 0x80  // Single byte elements: 0x00-0x7f
+	RLPShortStringMax = 0xb8 // Short strings: 0x80-0xb7  
+	RLPLongStringMax = 0xc0  // Long strings: 0xb8-0xbf
+	MaxHashBytes = 64         // Maximum bytes for hash extraction
 )
 
 type BranchInput struct {
@@ -46,7 +46,7 @@ func rlpListWalk(api frontend.API, node []uints.U8, elementIndex int) (start, le
 	
 	// Assert that the list payload length is within our scan bounds
 	// This ensures we can safely scan the entire payload
-	maxScanLength := frontend.Variable(MAX_ITEM_SCAN_LENGTH)
+	maxScanLength := frontend.Variable(MaxItemScanLength)
 	api.AssertIsEqual(isLess(api, listPayloadLen, maxScanLength), frontend.Variable(1))
 	
 	// Current position within the list payload
@@ -66,11 +66,11 @@ func rlpListWalk(api frontend.API, node []uints.U8, elementIndex int) (start, le
 	// so we can optimize the loop bounds accordingly
 	payloadEnd := api.Add(listOffset, listPayloadLen)
 	
-	for scanPos := 0; scanPos < MAX_ITEM_SCAN_LENGTH && scanPos < len(node); scanPos++ {
+	for scanPos := 0; scanPos < MaxItemScanLength && scanPos < len(node); scanPos++ {
 		scanVar := frontend.Variable(scanPos)
 		
 		// Data-dependent bounds checking: only process within the actual payload bounds
-		// This is more efficient than the fixed MAX_ITEM_SCAN_LENGTH approach
+		// This is more efficient than the fixed MaxItemScanLength approach
 		withinPayload := api.And(
 			isLess(api, scanVar, payloadEnd), // scanPos < listOffset + listPayloadLen  
 			isLess(api, api.Sub(listOffset, frontend.Variable(1)), scanVar), // listOffset <= scanPos
@@ -133,7 +133,7 @@ func rlpListWalk(api frontend.API, node []uints.U8, elementIndex int) (start, le
 // decodePointer reads an RLP element and determines its type, then extracts the payload
 // and computes HashNode for verification. This implements the pointer decoding logic
 // for child hash verification in MPT nodes.
-func decodePointer(api frontend.API, node []uints.U8, elementStart, elementLength frontend.Variable, expectedChild frontend.Variable) {
+func decodePointer(api frontend.API, node []uints.U8, elementStart, _ frontend.Variable, expectedChild frontend.Variable) {
 	// Extract a bounded slice around the element for analysis
 	// We need at most 9 bytes for RLP header + some payload bytes for analysis
 	maxExamineBytes := 73 // 9 bytes max RLP header + 64 bytes max hash
@@ -163,14 +163,14 @@ func decodePointer(api frontend.API, node []uints.U8, elementStart, elementLengt
 	firstByte := elementBytes[0].Val
 	
 	// Classify the element type based on first byte
-	isSingleByte := isLess(api, firstByte, frontend.Variable(RLP_SINGLE_BYTE_MAX))
+	isSingleByte := isLess(api, firstByte, frontend.Variable(RLPSingleByteMax))
 	isShortString := api.And(
-		isLess(api, frontend.Variable(RLP_SINGLE_BYTE_MAX-1), firstByte), // >= 0x80
-		isLess(api, firstByte, frontend.Variable(RLP_SHORT_STRING_MAX)),   // < 0xb8
+		isLess(api, frontend.Variable(RLPSingleByteMax-1), firstByte), // >= 0x80
+		isLess(api, firstByte, frontend.Variable(RLPShortStringMax)),   // < 0xb8
 	)
 	isLongString := api.And(
-		isLess(api, frontend.Variable(RLP_SHORT_STRING_MAX-1), firstByte), // >= 0xb8
-		isLess(api, firstByte, frontend.Variable(RLP_LONG_STRING_MAX)),    // < 0xc0
+		isLess(api, frontend.Variable(RLPShortStringMax-1), firstByte), // >= 0xb8
+		isLess(api, firstByte, frontend.Variable(RLPLongStringMax)),    // < 0xc0
 	)
 	
 	// Extract the payload based on element type
@@ -178,7 +178,7 @@ func decodePointer(api frontend.API, node []uints.U8, elementStart, elementLengt
 	// For short string: payload starts at offset 1, length from header  
 	// For long string: payload starts at computed offset, length from header
 	
-	payload := make([]uints.U8, MAX_HASH_BYTES)
+	payload := make([]uints.U8, MaxHashBytes)
 	
 	// Single byte case: payload is just the first byte
 	singleBytePayload := elementBytes[0]
@@ -188,7 +188,7 @@ func decodePointer(api frontend.API, node []uints.U8, elementStart, elementLengt
 	stringPayloadLength := payloadLength
 	
 	// Build the payload array for all cases
-	for i := 0; i < MAX_HASH_BYTES; i++ {
+	for i := 0; i < MaxHashBytes; i++ {
 		// For single byte case, only index 0 is valid
 		singleByteValue := frontend.Variable(0)
 		if i == 0 {
@@ -249,7 +249,7 @@ func decodePointer(api frontend.API, node []uints.U8, elementStart, elementLengt
 	
 	// Compute Keccak for 32-byte payload
 	var keccak32Hash frontend.Variable
-	if MAX_HASH_BYTES >= 32 {
+	if MaxHashBytes >= 32 {
 		payload32 := make([]uints.U8, 32)
 		copy(payload32, payload[:32])
 		k32 := keccak.New(api)
@@ -265,7 +265,7 @@ func decodePointer(api frontend.API, node []uints.U8, elementStart, elementLengt
 	
 	// Compute Keccak for 33-byte payload
 	var keccak33Hash frontend.Variable
-	if MAX_HASH_BYTES >= 33 {
+	if MaxHashBytes >= 33 {
 		payload33 := make([]uints.U8, 33)
 		copy(payload33, payload[:33])
 		k33 := keccak.New(api)
@@ -283,7 +283,7 @@ func decodePointer(api frontend.API, node []uints.U8, elementStart, elementLengt
 	
 	// Compute Keccak for 64-byte payload
 	var keccak64Hash frontend.Variable
-	if MAX_HASH_BYTES >= 64 {
+	if MaxHashBytes >= 64 {
 		payload64 := make([]uints.U8, 64)
 		copy(payload64, payload[:64])
 		k64 := keccak.New(api)
@@ -363,10 +363,11 @@ func decodePointer(api frontend.API, node []uints.U8, elementStart, elementLengt
 
 // extractPointerPayload extracts payload bytes directly from positions (for branch verification)
 // Note: elementStart points to payload start (after RLP header), elementLength is payload length
+//nolint:unused // Keeping for potential future use
 func extractPointerPayload(api frontend.API, node []uints.U8, elementStart, elementLength frontend.Variable) ([]uints.U8, frontend.Variable) {
 	// Direct payload extraction for branch verification
-	payload := make([]uints.U8, MAX_HASH_BYTES)
-	for i := 0; i < MAX_HASH_BYTES; i++ {
+	payload := make([]uints.U8, MaxHashBytes)
+	for i := 0; i < MaxHashBytes; i++ {
 		absolutePos := api.Add(elementStart, frontend.Variable(i))
 		withinPayload := isLess(api, frontend.Variable(i), elementLength)
 		
@@ -406,8 +407,8 @@ func extractPointerPayloadWithRLP(api frontend.API, node []uints.U8, elementStar
 	offset, payloadLength := decodeRLPHeader(api, elementBytes)
 	
 	// Extract RLP payload
-	payload := make([]uints.U8, MAX_HASH_BYTES)
-	for i := 0; i < MAX_HASH_BYTES; i++ {
+	payload := make([]uints.U8, MaxHashBytes)
+	for i := 0; i < MaxHashBytes; i++ {
 		payloadIndex := api.Add(offset, frontend.Variable(i))
 		withinPayload := isLess(api, frontend.Variable(i), payloadLength)
 		
@@ -426,6 +427,7 @@ func extractPointerPayloadWithRLP(api frontend.API, node []uints.U8, elementStar
 
 // computeElementHash computes the hash of an RLP element payload using the same logic as HashNode
 // This is similar to decodePointer but returns the computed hash instead of asserting equality
+//nolint:unused // Keeping for potential future use
 func computeElementHash(api frontend.API, payload []uints.U8, payloadLength frontend.Variable) frontend.Variable {
 	// Single byte case
 	singleByteHash := HashNode(api, []uints.U8{payload[0]})
@@ -443,7 +445,7 @@ func computeElementHash(api frontend.API, payload []uints.U8, payloadLength fron
 	
 	// Compute Keccak for 32-byte payload (same as in decodePointer)
 	var keccak32Hash frontend.Variable
-	if MAX_HASH_BYTES >= 32 {
+	if MaxHashBytes >= 32 {
 		payload32 := make([]uints.U8, 32)
 		copy(payload32, payload[:32])
 		k32 := keccak.New(api)
@@ -459,7 +461,7 @@ func computeElementHash(api frontend.API, payload []uints.U8, payloadLength fron
 	
 	// Compute Keccak for 33-byte payload 
 	var keccak33Hash frontend.Variable
-	if MAX_HASH_BYTES >= 33 {
+	if MaxHashBytes >= 33 {
 		payload33 := make([]uints.U8, 33)
 		copy(payload33, payload[:33])
 		k33 := keccak.New(api)
@@ -477,7 +479,7 @@ func computeElementHash(api frontend.API, payload []uints.U8, payloadLength fron
 	
 	// Compute Keccak for 64-byte payload
 	var keccak64Hash frontend.Variable
-	if MAX_HASH_BYTES >= 64 {
+	if MaxHashBytes >= 64 {
 		payload64 := make([]uints.U8, 64)
 		copy(payload64, payload[:64])
 		k64 := keccak.New(api)
@@ -608,6 +610,7 @@ func conditionallyDecodePointer(api frontend.API, node []uints.U8, elementStart,
 
 // conditionallyVerifyPointer verifies a pointer only if the condition is true
 // This allows us to conditionally apply verification based on node type
+//nolint:unused // Keeping for potential future use
 func conditionallyVerifyPointer(api frontend.API, node []uints.U8, elementStart, elementLength frontend.Variable, expectedValue frontend.Variable, condition frontend.Variable) {
 	// Just call the decode pointer version
 	conditionallyDecodePointer(api, node, elementStart, elementLength, expectedValue, condition)
