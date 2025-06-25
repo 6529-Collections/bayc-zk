@@ -225,22 +225,11 @@ func decodePointer(api frontend.API, node []uints.U8, elementStart, _ frontend.V
 	// For single byte (length 1), use a 1-element slice
 	singleByteSlice := []uints.U8{payload[0]}
 	
-	// For strings, we need a slice of the appropriate length
-	// Since circuit compilation requires fixed sizes, we'll use branching logic
-	computedHash := frontend.Variable(0)
-	
 	// Handle single byte case
 	singleByteHash := HashNode(api, singleByteSlice)
 	
-	// Handle string cases with proper hashed pointer support
-	// For payloads >= 32 bytes, we need to use Keccak hashing like HashNode does
-	stringHash := frontend.Variable(0)
-	
 	// Determine if we need Keccak hashing (payload length >= 32)
 	needsKeccak := isLess(api, frontend.Variable(31), stringPayloadLength) // 31 < payloadLength, i.e., payloadLength >= 32
-	
-	// For Keccak case: hash specific-length payloads using Keccak gadget
-	keccakHash := frontend.Variable(0)
 	
 	// Handle common large payload sizes with exact-length arrays
 	isLength32 := api.IsZero(api.Sub(stringPayloadLength, frontend.Variable(32)))
@@ -300,13 +289,12 @@ func decodePointer(api frontend.API, node []uints.U8, elementStart, _ frontend.V
 	}
 	
 	// Select the appropriate Keccak hash based on length
-	keccakHash = api.Select(isLength32, keccak32Hash,
+	keccakHash := api.Select(isLength32, keccak32Hash,
 		api.Select(isLength33, keccak33Hash,
 			api.Select(isLength64, keccak64Hash, frontend.Variable(0)))) // Specific lengths only
 	
 	// For direct integer case: create appropriately sized payload and compute directly
 	// We'll support common lengths and use a more general approach for the rest
-	directHash := frontend.Variable(0)
 	
 	// For lengths 1-31, we can compute directly as big-endian integers
 	// Since HashNode requires fixed-size arrays at compile time, we'll create different sized arrays
@@ -349,13 +337,13 @@ func decodePointer(api frontend.API, node []uints.U8, elementStart, _ frontend.V
 				api.Select(isLength4, hash4,
 					api.Select(isLength5, hash5, payloadAsInteger)))))
 					
-	directHash = api.Select(isLengthBig, payloadAsInteger, smallLengthHash)
+	directHash := api.Select(isLengthBig, payloadAsInteger, smallLengthHash)
 	
 	// Final selection: use Keccak hash for large payloads, direct hash for small ones
-	stringHash = api.Select(needsKeccak, keccakHash, directHash)
+	stringHash := api.Select(needsKeccak, keccakHash, directHash)
 	
 	// Select the appropriate hash based on element type
-	computedHash = api.Select(isSingleByte, singleByteHash, stringHash)
+	computedHash := api.Select(isSingleByte, singleByteHash, stringHash)
 	
 	// Assert that the computed hash matches the expected child hash
 	api.AssertIsEqual(computedHash, expectedChild)
@@ -435,9 +423,6 @@ func computeElementHash(api frontend.API, payload []uints.U8, payloadLength fron
 	// Determine if we need Keccak hashing (payload length >= 32)
 	needsKeccak := isLess(api, frontend.Variable(31), payloadLength) // 31 < payloadLength, i.e., payloadLength >= 32
 	
-	// For Keccak case: hash specific-length payloads using Keccak gadget
-	keccakHash := frontend.Variable(0)
-	
 	// Handle common large payload sizes with exact-length arrays
 	isLength32 := api.IsZero(api.Sub(payloadLength, frontend.Variable(32)))
 	isLength33 := api.IsZero(api.Sub(payloadLength, frontend.Variable(33)))
@@ -496,12 +481,11 @@ func computeElementHash(api frontend.API, payload []uints.U8, payloadLength fron
 	}
 	
 	// Select the appropriate Keccak hash based on length
-	keccakHash = api.Select(isLength32, keccak32Hash,
+	keccakHash := api.Select(isLength32, keccak32Hash,
 		api.Select(isLength33, keccak33Hash,
 			api.Select(isLength64, keccak64Hash, frontend.Variable(0)))) // Specific lengths only
 	
 	// For direct integer case: create appropriately sized payload and compute directly
-	directHash := frontend.Variable(0)
 	
 	// Create payload slices for different common lengths (same as in decodePointer)
 	payload1 := []uints.U8{payload[0]}
@@ -540,7 +524,7 @@ func computeElementHash(api frontend.API, payload []uints.U8, payloadLength fron
 				api.Select(isLength4, hash4,
 					api.Select(isLength5, hash5, payloadAsInteger)))))
 					
-	directHash = api.Select(isLengthBig, payloadAsInteger, smallLengthHash)
+	directHash := api.Select(isLengthBig, payloadAsInteger, smallLengthHash)
 	
 	// Final selection: use Keccak hash for large payloads, direct hash for small ones
 	stringHash := api.Select(needsKeccak, keccakHash, directHash)
