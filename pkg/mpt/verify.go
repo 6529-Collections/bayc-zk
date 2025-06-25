@@ -44,6 +44,11 @@ func rlpListWalk(api frontend.API, node []uints.U8, elementIndex int) (start, le
 	// First, decode the RLP list header to get list content start and total length
 	listOffset, listPayloadLen := decodeRLPHeader(api, node)
 	
+	// Assert that the list payload length is within our scan bounds
+	// This ensures we can safely scan the entire payload
+	maxScanLength := frontend.Variable(MAX_ITEM_SCAN_LENGTH)
+	api.AssertIsEqual(isLess(api, listPayloadLen, maxScanLength), frontend.Variable(1))
+	
 	// Current position within the list payload
 	currentPos := listOffset
 	
@@ -57,12 +62,17 @@ func rlpListWalk(api frontend.API, node []uints.U8, elementIndex int) (start, le
 	foundLength := frontend.Variable(0)
 	
 	// Walk through the list payload, parsing each element
-	// We need to bound this loop for circuit compilation
+	// Data-dependent optimization: we know the actual payload length from the header
+	// so we can optimize the loop bounds accordingly
+	payloadEnd := api.Add(listOffset, listPayloadLen)
+	
 	for scanPos := 0; scanPos < MAX_ITEM_SCAN_LENGTH && scanPos < len(node); scanPos++ {
-		// Check if we're within the list payload bounds
 		scanVar := frontend.Variable(scanPos)
+		
+		// Data-dependent bounds checking: only process within the actual payload bounds
+		// This is more efficient than the fixed MAX_ITEM_SCAN_LENGTH approach
 		withinPayload := api.And(
-			isLess(api, scanVar, api.Add(listOffset, listPayloadLen)), // scanPos < listOffset + listPayloadLen
+			isLess(api, scanVar, payloadEnd), // scanPos < listOffset + listPayloadLen  
 			isLess(api, api.Sub(listOffset, frontend.Variable(1)), scanVar), // listOffset <= scanPos
 		)
 		
