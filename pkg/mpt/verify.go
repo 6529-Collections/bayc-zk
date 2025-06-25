@@ -542,23 +542,38 @@ func computeElementHash(api frontend.API, payload []uints.U8, payloadLength fron
 	return computedHash
 }
 
-// conditionallyVerifyPointer verifies a pointer only if the condition is true
-// This allows us to conditionally apply verification based on node type
-func conditionallyVerifyPointer(api frontend.API, node []uints.U8, elementStart, elementLength frontend.Variable, expectedChild frontend.Variable, condition frontend.Variable) {
-	// If condition is false, we skip verification by not calling decodePointer
-	// If condition is true, we call decodePointer normally
-	// For circuit safety, we always do the extraction but only assert when condition is true
-	
-	// Extract the pointer payload
+// conditionallyDecodePointer uses decodePointer only when condition is true
+// For false conditions, it skips verification entirely
+func conditionallyDecodePointer(api frontend.API, node []uints.U8, elementStart, elementLength frontend.Variable, expectedValue frontend.Variable, condition frontend.Variable) {
+	// Extract the element payload
 	payload, payloadLength := extractPointerPayload(api, node, elementStart, elementLength)
 	
-	// Compute the hash of this element
+	// For empty slots (single byte 0x80), use the literal value
+	// For other elements, compute the hash using HashNode/Keccak
+	isEmpty := api.IsZero(api.Sub(elementLength, frontend.Variable(1))) // length == 1
+	isEmptyByte := frontend.Variable(0)
+	if len(payload) > 0 {
+		isEmptyByte = api.IsZero(api.Sub(payload[0].Val, frontend.Variable(0x80)))
+	}
+	isEmptySlot := api.And(isEmpty, isEmptyByte)
+	
+	// For empty slots: use literal 0x80
+	// For non-empty slots: compute hash
+	emptyValue := frontend.Variable(0x80)
 	elementHash := computeElementHash(api, payload, payloadLength)
 	
-	// Only assert equality if condition is true
-	// If condition is false, the assertion becomes 0 == 0 which is always true
-	actualExpected := api.Select(condition, expectedChild, elementHash)
-	api.AssertIsEqual(elementHash, actualExpected)
+	actualValue := api.Select(isEmptySlot, emptyValue, elementHash)
+	
+	// Only assert if condition is true
+	actualExpected := api.Select(condition, expectedValue, actualValue)
+	api.AssertIsEqual(actualValue, actualExpected)
+}
+
+// conditionallyVerifyPointer verifies a pointer only if the condition is true
+// This allows us to conditionally apply verification based on node type
+func conditionallyVerifyPointer(api frontend.API, node []uints.U8, elementStart, elementLength frontend.Variable, expectedValue frontend.Variable, condition frontend.Variable) {
+	// Just call the decode pointer version
+	conditionallyDecodePointer(api, node, elementStart, elementLength, expectedValue, condition)
 }
 
 
@@ -611,25 +626,30 @@ func VerifyBranch(api frontend.API, in BranchInput) frontend.Variable {
 		// Detect node type based on first byte (0xd* = branch, 0xc* = extension)
 		isBranch, isExtension := detectNodeType(api, parent)
 		
-		// Implementation using the requested pattern:
-		// start,len := rlpListWalk(api, parent, branchIndex)
-		// decodePointer(api, parent, start, len, HashNode(child))
-		
-		// For branches: use path nibble as index (default to 15 for test fixtures)
-		branchIndex := 15
+		// Branch verification: iterate over all 17 children (0-15 + value slot)
+		// For each slot i:
+		// - If i == pathNibble → expect HashNode(child)
+		// - Else → expect empty string pointer 0x80
+		pathNibble := frontend.Variable(0)
 		if len(in.Path) > 0 && offset < len(in.Path) {
-			// TODO: For full dynamic support, we'd need a different approach
-			// For now, use the known test fixture index
-			branchIndex = 15 
+			pathNibble = in.Path[offset].Val
 		}
 		
-		// Extract and verify using the exact pattern requested
-		start, length := rlpListWalk(api, parent, branchIndex)
+		// Verify all 17 branch slots when this is a branch node
+		for i := 0; i < 17; i++ {
+			start, length := rlpListWalk(api, parent, i)
+			
+			// Determine expected value for this slot
+			isTargetSlot := api.IsZero(api.Sub(pathNibble, frontend.Variable(i)))
+			expectedValue := api.Select(isTargetSlot, expectedChildHash, frontend.Variable(0x80))
+			
+			// Use the direct decodePointer pattern as requested
+			// This will verify that the extracted pointer matches the expected value
+			isCurrentBranch := api.And(isBranch, frontend.Variable(1)) // Only verify if branch
+			conditionallyDecodePointer(api, parent, start, length, expectedValue, isCurrentBranch)
+		}
 		
-		// Use conditional verification to only verify when appropriate
-		conditionallyVerifyPointer(api, parent, start, length, expectedChildHash, isBranch)
-		
-		// For extension nodes: extract element at index 1
+		// Extension verification: extract element at index 1 (second element in [key, value] pair)
 		startExt, lengthExt := rlpListWalk(api, parent, 1)
 		conditionallyVerifyPointer(api, parent, startExt, lengthExt, expectedChildHash, isExtension)
 		
@@ -637,7 +657,7 @@ func VerifyBranch(api frontend.API, in BranchInput) frontend.Variable {
 		totalVerificationSteps = api.Add(totalVerificationSteps, frontend.Variable(1))
 		successfulVerifications = api.Add(successfulVerifications, frontend.Variable(1))
 		
-		// Increment path offset
+		// Increment path offset for branch nodes (consume one nibble)
 		if len(in.Path) > 0 && offset < len(in.Path) {
 			offset++
 		}
