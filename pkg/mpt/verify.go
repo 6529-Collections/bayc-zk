@@ -558,14 +558,14 @@ func conditionallyDecodePointer(api frontend.API, node []uints.U8, elementStart,
 	// Extract the element payload
 	payload, payloadLength := extractPointerPayload(api, node, elementStart, elementLength)
 	
-	// For empty slots (single byte 0x80), use the literal value
-	// For other elements, compute the hash using HashNode/Keccak
-	isEmpty := api.IsZero(api.Sub(elementLength, frontend.Variable(1))) // length == 1
-	isEmptyByte := frontend.Variable(0)
-	if len(payload) > 0 {
-		isEmptyByte = api.IsZero(api.Sub(payload[0].Val, frontend.Variable(0x80)))
-	}
-	isEmptySlot := api.And(isEmpty, isEmptyByte)
+	// For empty slots (0x80 RLP encoding), use the literal value
+	// 0x80 is RLP encoded as: header=0x80, offset=1, payload_length=0
+	// So elementLength will be 0 for empty strings
+	isEmpty := api.IsZero(elementLength) // length == 0 for 0x80 empty string
+	
+	// For empty RLP strings, we also need to extract the 0x80 byte from the original position
+	// Since elementStart points to the 0x80 byte itself when isEmpty is true
+	isEmptySlot := isEmpty
 	
 	// For empty slots: use literal 0x80
 	// For non-empty slots: compute hash
@@ -575,6 +575,8 @@ func conditionallyDecodePointer(api frontend.API, node []uints.U8, elementStart,
 	actualValue := api.Select(isEmptySlot, emptyValue, elementHash)
 	
 	// Only assert if condition is true
+	// When condition is true: assert actualValue == expectedValue
+	// When condition is false: assert actualValue == actualValue (always true, no constraint)
 	actualExpected := api.Select(condition, expectedValue, actualValue)
 	api.AssertIsEqual(actualValue, actualExpected)
 }
@@ -645,7 +647,11 @@ func VerifyBranch(api frontend.API, in BranchInput) frontend.Variable {
 			pathNibble = in.Path[offset].Val
 		}
 		
-		// Verify all 17 branch slots when this is a branch node
+		// Exhaustive branch verification: iterate over all 17 children
+		// For each slot i:
+		// - If i == pathNibble → expect HashNode(child)
+		// - Else → expect empty string pointer 0x80
+		// This guarantees every slot is checked as requested
 		for i := 0; i < 17; i++ {
 			start, length := rlpListWalk(api, parent, i)
 			
@@ -653,10 +659,8 @@ func VerifyBranch(api frontend.API, in BranchInput) frontend.Variable {
 			isTargetSlot := api.IsZero(api.Sub(pathNibble, frontend.Variable(i)))
 			expectedValue := api.Select(isTargetSlot, expectedChildHash, frontend.Variable(0x80))
 			
-			// Use the direct decodePointer pattern as requested
-			// This will verify that the extracted pointer matches the expected value
-			isCurrentBranch := api.And(isBranch, frontend.Variable(1)) // Only verify if branch
-			conditionallyDecodePointer(api, parent, start, length, expectedValue, isCurrentBranch)
+			// Verify this slot when in a branch node
+			conditionallyDecodePointer(api, parent, start, length, expectedValue, isBranch)
 		}
 		
 		// Extension verification: extract element at index 1 (second element in [key, value] pair)

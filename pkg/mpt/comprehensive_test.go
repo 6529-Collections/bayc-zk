@@ -4,7 +4,6 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/consensys/gnark/backend"
 	"github.com/consensys/gnark-crypto/ecc"
 	bls381fr "github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
 	bn254fr "github.com/consensys/gnark-crypto/ecc/bn254/fr"
@@ -152,12 +151,11 @@ func TestBrokenChildHashFails(t *testing.T) {
 	for _, c := range curves {
 		r := new(big.Int).Mod(rootInt, c.mod)
 		assert := test.NewAssert(t)
-		// Test with groth16 only - plonk catches errors at compile time (which is even better)
+		// Re-enabled for both Groth16 and Plonk after implementing fully variable-driven equality
 		assert.ProverFailed(
 			new(brokenChildCircuit),
 			&brokenChildCircuit{Root: r},
 			test.WithCurves(c.id),
-			test.WithBackends(backend.GROTH16),
 		)
 	}
 }
@@ -183,12 +181,11 @@ func TestWrongNibbleFails(t *testing.T) {
 	for _, c := range curves {
 		r := new(big.Int).Mod(rootInt, c.mod)
 		assert := test.NewAssert(t)
-		// Test with groth16 only - plonk catches errors at compile time (which is even better)
+		// Re-enabled for both Groth16 and Plonk after implementing fully variable-driven equality
 		assert.ProverFailed(
 			new(wrongNibbleCircuit),
 			&wrongNibbleCircuit{Root: r},
 			test.WithCurves(c.id),
-			test.WithBackends(backend.GROTH16),
 		)
 	}
 }
@@ -245,12 +242,11 @@ func TestMultiLevelBranchWrongNibbleFails(t *testing.T) {
 	for _, c := range curves {
 		r := new(big.Int).Mod(rootInt, c.mod)
 		assert := test.NewAssert(t)
-		// Test with groth16 only - plonk catches errors at compile time (which is even better)
+		// Re-enabled for both Groth16 and Plonk after implementing fully variable-driven equality
 		assert.ProverFailed(
 			new(multiLevelWrongNibbleCircuit),
 			&multiLevelWrongNibbleCircuit{Root: r},
 			test.WithCurves(c.id),
-			test.WithBackends(backend.GROTH16),
 		)
 	}
 }

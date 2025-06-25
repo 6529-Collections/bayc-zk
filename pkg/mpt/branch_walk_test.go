@@ -4,7 +4,6 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/consensys/gnark/backend"
 	"github.com/consensys/gnark-crypto/ecc"
 	bls381fr "github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
 	bn254fr "github.com/consensys/gnark-crypto/ecc/bn254/fr"
@@ -46,7 +45,7 @@ func (c *walkCircuit) Define(api frontend.API) error {
 
 	VerifyBranch(api, BranchInput{
 		Nodes:   [][]uints.U8{br, ext, leaf},
-		Path:    nil,
+		Path:    []uints.U8{b(0x0f)}, // nibble 15 where extension is placed
 		LeafVal: leaf,
 		Root:    c.Root,
 	})
@@ -93,7 +92,7 @@ func (c *badCircuit) Define(api frontend.API) error {
 
 	VerifyBranch(api, BranchInput{
 		Nodes:   [][]uints.U8{br, ext, badLeaf},
-		Path:    nil,
+		Path:    []uints.U8{b(0x0f)}, // nibble 15 where extension is placed
 		LeafVal: badLeaf,
 		Root:    c.Root,
 	})
@@ -101,7 +100,7 @@ func (c *badCircuit) Define(api frontend.API) error {
 }
 
 // TestBranchWalkBrokenChildHashFails verifies that invalid child hashes fail at proving time
-// Enabled after implementing variable-driven equality (groth16 only - plonk catches at compile time)
+// Re-enabled for both Groth16 and Plonk after implementing fully variable-driven equality
 func TestBranchWalkBrokenChildHashFails(t *testing.T) {
 	ext := extensionNode()
 	br  := branchNode(ext)
@@ -116,7 +115,6 @@ func TestBranchWalkBrokenChildHashFails(t *testing.T) {
 	assert.ProverFailed(
 		new(badCircuit),
 		&badCircuit{Root: rootInt},
-		test.WithBackends(backend.GROTH16),
 	)
 }
 
