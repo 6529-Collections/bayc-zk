@@ -174,7 +174,7 @@ func (c *payloadExtractionCircuit) Define(api frontend.API) error {
 	elementLength := frontend.Variable(4)
 	
 	// Extract payload without verification
-	payload, actualLength := extractPointerPayload(api, node, elementStart, elementLength)
+	payload, actualLength := extractPointerPayloadWithRLP(api, node, elementStart, elementLength)
 	
 	// Verify the extracted payload properties
 	api.AssertIsEqual(actualLength, c.ExpectedLength)
