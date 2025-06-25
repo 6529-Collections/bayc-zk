@@ -731,3 +731,70 @@ func VerifyBranch(api frontend.API, in BranchInput) frontend.Variable {
 
 	return HashNode(api, in.Nodes[len(in.Nodes)-1])
 }
+
+// ExtractStorageRoot extracts the storage root from an account leaf node
+// Account leaf format: RLP([nonce, balance, storageRoot, codeHash])
+// Returns the storageRoot (third field) for chaining into storage trie verification
+func ExtractStorageRoot(api frontend.API, accountLeaf []uints.U8) frontend.Variable {
+	// For a typical account leaf, the storageRoot is the third field in the RLP list
+	// This is a simplified extraction - in production this would need full RLP parsing
+	
+	// Find the third field (index 2) in the RLP list
+	// This uses the same rlpListWalk logic but extracts the storageRoot field
+	start, length := rlpListWalk(api, accountLeaf, 2) // Third field (0-indexed)
+	
+	// Extract the storage root bytes and convert to hash
+	storageRootBytes := make([]uints.U8, 32) // Storage root is always 32 bytes
+	for i := 0; i < 32; i++ {
+		absolutePos := api.Add(start, frontend.Variable(i))
+		withinField := isLess(api, frontend.Variable(i), length)
+		
+		byteVal := frontend.Variable(0)
+		for j := 0; j < len(accountLeaf); j++ {
+			isThisPos := api.IsZero(api.Sub(absolutePos, frontend.Variable(j)))
+			byteVal = api.Select(isThisPos, accountLeaf[j].Val, byteVal)
+		}
+		
+		finalValue := api.Select(withinField, byteVal, frontend.Variable(0))
+		storageRootBytes[i] = uints.U8{Val: finalValue}
+	}
+	
+	// Convert storage root bytes to a single hash value
+	return HashNode(api, storageRootBytes)
+}
+
+// VerifyStorageBranch verifies a storage trie branch using the same VerifyBranch logic
+// but with the storageRoot as the root. This allows chaining account → storage verification.
+// The storage path is typically keccak256(pad32(tokenId) || pad32(slot)) → 64-nibble path
+func VerifyStorageBranch(api frontend.API, storageProof [][]uints.U8, storagePath []uints.U8, expectedLeafVal []uints.U8, storageRoot frontend.Variable) frontend.Variable {
+	// Re-use the existing VerifyBranch function with storage-specific parameters
+	return VerifyBranch(api, BranchInput{
+		Nodes:   storageProof,
+		Path:    storagePath,
+		LeafVal: expectedLeafVal,
+		Root:    storageRoot,
+	})
+}
+
+// StorageLeafMustEqualOwner validates that a storage slot leaf contains the expected owner address
+// BAYC (and most ERC-721) contracts pack addresses right-aligned in 32-byte storage slots
+// So the owner address occupies bytes [12:32] of the 32-byte slot value
+func StorageLeafMustEqualOwner(api frontend.API, slotLeaf []uints.U8, ownerBytes []uints.U8) {
+	// Validate input lengths
+	if len(ownerBytes) != 20 {
+		// This would be caught at compile time, but adding for clarity
+		panic("ownerBytes must be exactly 20 bytes for Ethereum address")
+	}
+	
+	if len(slotLeaf) < 32 {
+		// Storage slots should be 32 bytes  
+		panic("slotLeaf must be at least 32 bytes for Ethereum storage slot")
+	}
+	
+	// Extract the rightmost 20 bytes (address portion) from the 32-byte storage slot
+	// and compare with the expected owner address
+	for i := 0; i < 20; i++ {
+		slotByteIndex := 12 + i // Addresses start at byte 12 in the 32-byte slot
+		api.AssertIsEqual(slotLeaf[slotByteIndex].Val, ownerBytes[i].Val)
+	}
+}
