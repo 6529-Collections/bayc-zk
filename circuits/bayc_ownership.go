@@ -31,9 +31,7 @@ func (c *BaycOwnershipCircuit) Define(api frontend.API) error {
     })
 
     // ── Storage proof stubbed with empty slice for now ──
-    _ = c.StorageProof // Acknowledge but don't use
-    _ = c.StoragePath  // Acknowledge but don't use  
-    _ = c.OwnerBytes   // Acknowledge but don't use
+    _, _, _ = c.StorageProof, c.StoragePath, c.OwnerBytes
 
     return nil
 }
