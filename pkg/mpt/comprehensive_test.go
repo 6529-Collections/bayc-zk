@@ -57,6 +57,7 @@ type multiLevelBranchCircuit struct {
 	Root frontend.Variable `gnark:",public"`
 }
 
+//nolint:unused // Keeping for potential future use
 func createNestedBranchNode(child []uints.U8, nibbleIndex int) []uints.U8 {
 	// This is a simplified approach - create the branch node structure manually
 	// For test purposes, we'll use a fixed structure similar to the existing branchNode
