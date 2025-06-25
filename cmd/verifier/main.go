@@ -23,7 +23,7 @@ func main() {
 	cmd := &cobra.Command{
 		Use:   "verifier",
 		Short: "Verify Groth16 proof of BAYC ownership",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			pBytes, _ := os.ReadFile(proofPath)
 			vBytes, _ := os.ReadFile(vkPath)
 			jBytes, _ := os.ReadFile(publicPath)

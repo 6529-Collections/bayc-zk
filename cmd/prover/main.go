@@ -23,6 +23,11 @@ import (
 	"github.com/yourorg/bayczk/pkg/witness"
 )
 
+// contextKey is a custom type for context keys to avoid conflicts
+type contextKey string
+
+const startTimeKey contextKey = "start"
+
 func main() {
 	var (
 		rpcURL    string
@@ -36,7 +41,7 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use:   "prover",
 		Short: "Generate Groth16 proof of BAYC ownership",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if rpcURL == "" {
 				_ = godotenv.Load()
 				rpcURL = os.Getenv("ALCHEMY_URL")
@@ -94,10 +99,10 @@ func main() {
 					return err
 				}
 				var b bytes.Buffer
-				pk.WriteTo(&b)
+				_, _ = pk.WriteTo(&b)
 				_ = os.WriteFile(pkPath, b.Bytes(), 0o644)
 				b.Reset()
-				vk.WriteTo(&b)
+				_, _ = vk.WriteTo(&b)
 				_ = os.WriteFile(vkPath, b.Bytes(), 0o644)
 			}
 
@@ -116,17 +121,17 @@ func main() {
 			publicPath := filepath.Join(outDir, "bayc_public.json")
 
 			var buf bytes.Buffer
-			proof.WriteTo(&buf)
+			_, _ = proof.WriteTo(&buf)
 			_ = os.WriteFile(proofPath, buf.Bytes(), 0o644)
 
 			jsonBytes, _ := json.MarshalIndent(bundle.Public, "", "  ")
 			_ = os.WriteFile(publicPath, jsonBytes, 0o644)
 
 			csBuf := new(bytes.Buffer)
-			cs.WriteTo(csBuf)
+			_, _ = cs.WriteTo(csBuf)
 			sum := sha256.Sum256(csBuf.Bytes())
 			fmt.Printf("circuit hash: %x\n", sum[:4])
-			fmt.Printf("proof done in %s\n", time.Since(cmd.Context().Value("start").(time.Time)))
+			fmt.Printf("proof done in %s\n", time.Since(cmd.Context().Value(startTimeKey).(time.Time)))
 			return nil
 		},
 	}
@@ -138,7 +143,7 @@ func main() {
 	rootCmd.Flags().StringVar(&ownerS, "owner", "", "Expected owner address")
 	rootCmd.Flags().StringVar(&outDir, "outdir", "./", "Output directory")
 
-	rootCmd.SetContext(context.WithValue(context.Background(), "start", time.Now()))
+	rootCmd.SetContext(context.WithValue(context.Background(), startTimeKey, time.Now()))
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatal(err)
 	}
