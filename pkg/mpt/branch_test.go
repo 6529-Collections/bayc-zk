@@ -10,6 +10,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/uints"
 	"github.com/consensys/gnark/test"
+	"github.com/yourorg/bayczk/pkg/mpt/testdata"
 )
 
 type accHappyCircuit struct {
@@ -35,13 +36,13 @@ type branchExtensionLeafCircuit struct {
 func (c *branchExtensionLeafCircuit) Define(api frontend.API) error {
 	// Three-node chain: branch → extension → leaf
 	// This creates a minimal test case as required by task specification  
-	leaf := leafNode()                  // 0xaa
-	ext  := extensionNode()             // extension pointing to leaf  
-	br   := branchNode(ext)             // branch with extension at slot 15
+	leaf := testdata.LeafNode()                  // 0xaa
+	ext  := testdata.ExtensionNode()             // extension pointing to leaf  
+	br   := testdata.BranchNode(ext)             // branch with extension at slot 15
 	
 	VerifyBranch(api, BranchInput{
 		Nodes:   [][]uints.U8{br, ext, leaf},
-		Path:    []uints.U8{b(0x0f)},    // nibble 15 where extension is placed
+		Path:    []uints.U8{testdata.B(0x0f)},    // nibble 15 where extension is placed
 		LeafVal: leaf,
 		Root:    c.Root,
 	})
@@ -72,8 +73,8 @@ func TestAccountLeafHappy(t *testing.T) {
 
 func TestBranchExtensionLeafHappy(t *testing.T) {
 	// Use the same pattern as TestBranchWalkHappy
-	ext := extensionNode()
-	br  := branchNode(ext)
+	ext := testdata.ExtensionNode()
+	br  := testdata.BranchNode(ext)
 
 	rootBytes := make([]byte, len(br))
 	for i, u := range br {
@@ -100,4 +101,4 @@ func TestBranchExtensionLeafHappy(t *testing.T) {
 }
 
 // Note: Negative test cases (brokenChild, wrongNibble) already exist in comprehensive_test.go
-// Note: Helper functions (leafNode, extensionNode, branchNode) are defined in branch_walk_test.go
+// Note: Test helper functions are now centralized in testdata/helpers.go
