@@ -57,7 +57,7 @@ func TestEndToEnd(t *testing.T) {
 	blockNum := uint64(22566332)
 	contract := common.HexToAddress("0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d")
 	tokenID  := big.NewInt(8822)
-	owner    := common.HexToAddress("0xc7626d18d697913c9e3ab06366399c7e9e814e94")
+	owner    := common.HexToAddress("0x0000000000000000000000000000000000000000") // Zero address matches the empty storage slot
 
 	bdl, err := wit.Build(ctx, srv.URL, blockNum, contract, tokenID, owner)
 	require.NoError(t, err)

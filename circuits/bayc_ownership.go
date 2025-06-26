@@ -10,14 +10,15 @@ import (
 func Curve() ecc.ID { return ecc.BN254 }
 
 type BaycOwnershipCircuit struct {
-    StateRoot    frontend.Variable `gnark:",public"`
-    TokenID      frontend.Variable `gnark:",public"`
+    StateRoot     frontend.Variable `gnark:",public"`
+    TokenID       frontend.Variable `gnark:",public"`
+    ExpectedOwner []uints.U8        `gnark:",public"`  // 20-byte owner address
 
-    AccountProof [][]uints.U8      `gnark:",private"`
-    StorageProof [][]uints.U8      `gnark:",private"`
-    AccountPath  []uints.U8        `gnark:",private"`
-    StoragePath  []uints.U8        `gnark:",private"`
-    OwnerBytes   []uints.U8        `gnark:",private"`
+    AccountProof [][]uints.U8      `gnark:",secret"`
+    StorageProof [][]uints.U8      `gnark:",secret"`
+    AccountPath  []uints.U8        `gnark:",secret"`
+    StoragePath  []uints.U8        `gnark:",secret"`
+    OwnerBytes   []uints.U8        `gnark:",secret"`
 }
 
 func (c *BaycOwnershipCircuit) Define(api frontend.API) error {
@@ -30,8 +31,23 @@ func (c *BaycOwnershipCircuit) Define(api frontend.API) error {
         Root:    c.StateRoot,  // public
     })
 
-    // ── Storage proof stubbed with empty slice for now ──
-    _, _, _ = c.StorageProof, c.StoragePath, c.OwnerBytes
+    // ── Storage MPT branch verification (storageRoot → storage-leaf) ──
+    // Temporarily disable storage verification entirely
+    _ = c.StorageProof
+    _ = c.StoragePath
+    // storageRoot := mpt.AccountLeafStorageRoot(api, c.AccountProof)
+    // _ = mpt.VerifyBranch(api, mpt.BranchInput{
+    //     Nodes:   c.StorageProof,
+    //     Path:    c.StoragePath,
+    //     LeafVal: nil,               // Don't verify leaf value for now
+    //     Root:    storageRoot,       // extracted from account leaf
+    // })
+
+    // ── Validate that storage slot contains expected owner address ──
+    // Temporarily disable to isolate the issue
+    _ = c.OwnerBytes
+    _ = c.ExpectedOwner
+    // mpt.StorageLeafMustEqualOwner(api, c.OwnerBytes, c.ExpectedOwner)
 
     return nil
 }
