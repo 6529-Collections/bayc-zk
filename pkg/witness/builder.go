@@ -270,7 +270,7 @@ func Build(
 	}
 	
 	ownerVal := toU8Slice(realStorageValue)              // Real 32-byte storage slot value
-	expectedOwner := toU8Slice(realOwnerAddress.Bytes()) // Real owner address from storage
+	expectedOwner := toU8Slice(expOwner.Bytes())         // Expected owner address (test parameter)
 
 	accPath := hexToNibbles(crypto.Keccak256Hash(contract.Bytes()))
 	slotKey := slot.Calc(tokenID, 0)
@@ -314,7 +314,7 @@ func Build(
 	pub := PublicInputs{
 		StateRoot: headerRoot,
 		TokenID:   tokenID.String(),
-		Owner:     realOwnerAddress.Hex()[2:], // Real owner from storage slot
+		Owner:     expOwner.Hex()[2:], // Expected owner (test parameter)
 	}
 
 	return &Bundle{Full: full, Public: pub, Blueprint: blue}, nil
