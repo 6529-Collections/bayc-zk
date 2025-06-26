@@ -32,22 +32,16 @@ func (c *BaycOwnershipCircuit) Define(api frontend.API) error {
     })
 
     // ── Storage MPT branch verification (storageRoot → storage-leaf) ──
-    // Temporarily disable storage verification entirely
-    _ = c.StorageProof
-    _ = c.StoragePath
-    // storageRoot := mpt.AccountLeafStorageRoot(api, c.AccountProof)
-    // _ = mpt.VerifyBranch(api, mpt.BranchInput{
-    //     Nodes:   c.StorageProof,
-    //     Path:    c.StoragePath,
-    //     LeafVal: nil,               // Don't verify leaf value for now
-    //     Root:    storageRoot,       // extracted from account leaf
-    // })
+    storageRoot := mpt.AccountLeafStorageRoot(api, c.AccountProof)
+    _ = mpt.VerifyBranch(api, mpt.BranchInput{
+        Nodes:   c.StorageProof,
+        Path:    c.StoragePath,
+        LeafVal: c.OwnerBytes,
+        Root:    storageRoot,
+    })
 
     // ── Validate that storage slot contains expected owner address ──
-    // Temporarily disable to isolate the issue
-    _ = c.OwnerBytes
-    _ = c.ExpectedOwner
-    // mpt.StorageLeafMustEqualOwner(api, c.OwnerBytes, c.ExpectedOwner)
+    mpt.StorageLeafMustEqualOwner(api, c.OwnerBytes, c.ExpectedOwner)
 
     return nil
 }
