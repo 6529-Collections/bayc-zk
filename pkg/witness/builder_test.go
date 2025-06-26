@@ -43,6 +43,10 @@ func TestFromFixtures(t *testing.T) {
 		t.Error("TokenID should not be nil")
 	}
 	
+	if len(builder.OwnerBytes) == 0 {
+		t.Error("OwnerBytes should not be empty")
+	}
+	
 	// Additional checks for expected values
 	if builder.TokenID.Int64() != 8822 {
 		t.Errorf("Expected TokenID 8822, got %d", builder.TokenID.Int64())
@@ -52,6 +56,10 @@ func TestFromFixtures(t *testing.T) {
 		t.Errorf("Expected Owner to be 40 hex characters, got %d", len(builder.Owner))
 	}
 	
+	if len(builder.OwnerBytes) != 32 { // Should be 32 bytes for storage slot
+		t.Errorf("Expected OwnerBytes to be 32 bytes, got %d", len(builder.OwnerBytes))
+	}
+	
 	// Log some basic info for verification
 	t.Logf("AccountProof has %d nodes", len(builder.AccountProof))
 	t.Logf("StorageProof has %d nodes", len(builder.StorageProof))
@@ -59,6 +67,7 @@ func TestFromFixtures(t *testing.T) {
 	t.Logf("StoragePath has %d nibbles", len(builder.StoragePath))
 	t.Logf("TokenID: %s", builder.TokenID.String())
 	t.Logf("Owner: %s", builder.Owner)
+	t.Logf("OwnerBytes: %d bytes (all zeros for empty slot)", len(builder.OwnerBytes))
 }
 
 func TestFromFixtures_MissingFiles(t *testing.T) {

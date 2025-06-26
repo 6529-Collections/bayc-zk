@@ -30,6 +30,7 @@ type Builder struct {
 	StateRoot    frontend.Variable
 	Owner        string // hex address without 0x prefix
 	TokenID      *big.Int
+	OwnerBytes   []uints.U8 // Real 32-byte storage slot value from RPC
 }
 
 // proofResponse represents the JSON structure from the RPC proof response
@@ -143,9 +144,47 @@ func FromFixtures(dir string) (*Builder, error) {
 	stateRootBytes := common.HexToHash(header.Result.StateRoot)
 	stateRoot := new(big.Int).SetBytes(stateRootBytes.Bytes())
 	
-	// Hard-code expected owner for token 8822 (this would be provided by caller in real usage)
-	// For now, use a placeholder address
-	owner := "1234567890123456789012345678901234567890" // 20-byte hex without 0x
+	// Extract the real storage slot value from RPC proof
+	var realStorageValue []byte
+	var realOwnerAddress string
+	
+	if len(proof.Result.StorageProof) > 0 {
+		// Get the actual storage slot value from the RPC proof
+		storageValueHex := proof.Result.StorageProof[0].Value
+		if storageValueHex == "0x0" || storageValueHex == "0x" {
+			// Storage slot is empty - create 32 zero bytes
+			realStorageValue = make([]byte, 32)
+			// For empty slots, we'll use a zero address as expected owner
+			realOwnerAddress = "0000000000000000000000000000000000000000"
+		} else {
+			// Parse the actual storage value
+			if len(storageValueHex) > 2 {
+				decoded, err := hex.DecodeString(storageValueHex[2:]) // Remove 0x prefix
+				if err != nil {
+					return nil, fmt.Errorf("failed to decode storage value: %w", err)
+				}
+				// Pad to 32 bytes if necessary
+				realStorageValue = make([]byte, 32)
+				copy(realStorageValue[32-len(decoded):], decoded)
+				
+				// Extract owner address from storage slot (last 20 bytes)
+				// BAYC stores owner address in the rightmost 20 bytes of the 32-byte slot
+				if len(realStorageValue) >= 20 {
+					ownerBytes := realStorageValue[12:32] // Bytes 12-31 (20 bytes)
+					realOwnerAddress = hex.EncodeToString(ownerBytes)
+				} else {
+					realOwnerAddress = "0000000000000000000000000000000000000000"
+				}
+			} else {
+				realStorageValue = make([]byte, 32)
+				realOwnerAddress = "0000000000000000000000000000000000000000"
+			}
+		}
+	} else {
+		// Fallback if no storage proof
+		realStorageValue = make([]byte, 32)
+		realOwnerAddress = "0000000000000000000000000000000000000000"
+	}
 	
 	return &Builder{
 		AccountProof: accountProof,
@@ -153,8 +192,9 @@ func FromFixtures(dir string) (*Builder, error) {
 		StorageProof: storageProof,
 		StoragePath:  storagePath,
 		StateRoot:    stateRoot,
-		Owner:        owner,
+		Owner:        realOwnerAddress, // Real owner address from storage slot
 		TokenID:      tokenID,
+		OwnerBytes:   toU8Slice(realStorageValue), // Real 32-byte storage slot value
 	}, nil
 }
 
@@ -194,15 +234,43 @@ func Build(
 		storNodes = append(storNodes, toU8Slice(raw))
 	}
 
-	// Work with the actual storage proof value instead of overriding it
-	// The RPC proof shows "0x0" which means the storage slot is empty
-	// We'll construct witness data that matches this empty state
+	// Extract the real storage slot value from RPC proof response
+	var realStorageValue []byte
+	var realOwnerAddress common.Address
 	
-	ownerVal := toU8Slice(make([]byte, 32))      // 32 zero bytes for empty storage slot
-	expectedOwner := toU8Slice(expOwner.Bytes()) // 20-byte expected owner address
+	if len(proof.StorageProof) > 0 {
+		storageValueHex := proof.StorageProof[0].Value
+		if storageValueHex == "0x0" || storageValueHex == "0x" {
+			// Storage slot is empty
+			realStorageValue = make([]byte, 32)
+			realOwnerAddress = common.Address{} // Zero address
+		} else {
+			// Parse the actual storage value
+			if len(storageValueHex) > 2 {
+				decoded, err := hex.DecodeString(storageValueHex[2:])
+				if err != nil {
+					return nil, fmt.Errorf("failed to decode storage value: %w", err)
+				}
+				// Pad to 32 bytes if necessary
+				realStorageValue = make([]byte, 32)
+				copy(realStorageValue[32-len(decoded):], decoded)
+				
+				// Extract owner address from storage slot (last 20 bytes)
+				if len(realStorageValue) >= 20 {
+					copy(realOwnerAddress[:], realStorageValue[12:32])
+				}
+			} else {
+				realStorageValue = make([]byte, 32)
+				realOwnerAddress = common.Address{}
+			}
+		}
+	} else {
+		realStorageValue = make([]byte, 32)
+		realOwnerAddress = common.Address{}
+	}
 	
-	// Don't modify the storage proof - use it as-is from the RPC
-	// The proof correctly shows that the storage slot is empty
+	ownerVal := toU8Slice(realStorageValue)              // Real 32-byte storage slot value
+	expectedOwner := toU8Slice(realOwnerAddress.Bytes()) // Real owner address from storage
 
 	accPath := hexToNibbles(crypto.Keccak256Hash(contract.Bytes()))
 	slotKey := slot.Calc(tokenID, 0)
@@ -246,7 +314,7 @@ func Build(
 	pub := PublicInputs{
 		StateRoot: headerRoot,
 		TokenID:   tokenID.String(),
-		Owner:     expOwner.Hex()[2:],
+		Owner:     realOwnerAddress.Hex()[2:], // Real owner from storage slot
 	}
 
 	return &Bundle{Full: full, Public: pub, Blueprint: blue}, nil
