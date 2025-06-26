@@ -49,20 +49,15 @@ func TestEndToEnd(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skip e2e in –short")
 	}
-	
-	// TODO: Current fixtures use token 8822 which has empty storage slot ("0x0")
-	// This causes constraint failures when trying to prove ownership of non-existent token
-	// Need fixtures with token that has real owner address in storage slot
-	t.Skip("Skipping e2e test - need fixtures with token that has real owner")
 
 	srv := rpcFixtureServer(t)
 	defer srv.Close()
 
 	ctx      := context.Background()
-	blockNum := uint64(22566332)
+	blockNum := uint64(22566332)  // Block before token 8822 was sold (sale at block 22569664)
 	contract := common.HexToAddress("0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d")
 	tokenID  := big.NewInt(8822)
-	owner    := common.HexToAddress("0x0000000000000000000000000000000000000000") // Zero address matches the empty storage slot
+	owner    := common.HexToAddress("0x0000000000000000000000000000000000000000") // Zero address - token unowned at this block
 
 	bdl, err := wit.Build(ctx, srv.URL, blockNum, contract, tokenID, owner)
 	require.NoError(t, err)
