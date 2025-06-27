@@ -97,3 +97,38 @@ func TestBranchExtensionLeafHappy(t *testing.T) {
 
 // Note: Negative test cases (brokenChild, wrongNibble) already exist in comprehensive_test.go
 // Note: Test helper functions are now centralized in testdata/helpers.go
+
+// Test storage functionality
+type storageOwnershipCircuit struct {
+	Root frontend.Variable `gnark:",public"`
+}
+
+func (c *storageOwnershipCircuit) Define(api frontend.API) error {
+	// Test the new storage functionality with mocked data
+	ownerAddr := make([]uints.U8, 20)
+	for i := 0; i < 20; i++ {
+		ownerAddr[i] = testdata.B(byte(0x42 + i)) // Mock address
+	}
+	
+	// Create a mock storage slot with the owner address
+	storageSlot := testdata.CreateStorageSlot([]byte{
+		0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x4b,
+		0x4c, 0x4d, 0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55,
+	})
+	
+	// Test the StorageLeafMustEqualOwner function
+	StorageLeafMustEqualOwner(api, storageSlot, ownerAddr)
+	
+	return nil
+}
+
+func TestStorageOwnershipValidation(t *testing.T) {
+	assert := test.NewAssert(t)
+	
+	// Test that storage ownership validation works correctly
+	assert.ProverSucceeded(
+		&storageOwnershipCircuit{},
+		&storageOwnershipCircuit{Root: frontend.Variable(1)}, // Dummy root
+		test.WithCurves(ecc.BN254, ecc.BLS12_381),
+	)
+}

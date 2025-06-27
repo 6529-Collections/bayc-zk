@@ -33,9 +33,9 @@ func rpcFixtureServer(tb testing.TB) *httptest.Server {
 		var file string
 		switch q.Method {
 		case "eth_getBlockByNumber":
-			file = "header_22566332.json"
+			file = "header_latest.json"
 		case "eth_getProof":
-			file = "proof_bayc_8822.json"
+			file = "proof_doodles_8822.json"
 		default:
 			http.Error(w, "unsupported method", http.StatusBadRequest)
 			return
@@ -49,26 +49,49 @@ func TestEndToEnd(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skip e2e in –short")
 	}
+	
+	// Stress-testing with full Doodles proof to measure constraint explosion
+	t.Logf("Running stress test with universal rlpListWalk verification")
 
 	srv := rpcFixtureServer(t)
 	defer srv.Close()
 
 	ctx      := context.Background()
-	blockNum := uint64(22566332)
-	contract := common.HexToAddress("0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d")
+	blockNum := uint64(0)  // Latest block (using 0 as placeholder since we use "latest")
+	contract := common.HexToAddress("0x8a90cab2b38dba80c64b7734e58ee1db38b8992e") // Doodles
 	tokenID  := big.NewInt(8822)
-	owner    := common.HexToAddress("0xc7626d18d697913c9e3ab06366399c7e9e814e94")
+	owner    := common.HexToAddress("0x4D892DB983E659317F82f3c91f26026D92E40B89") // Real owner from Doodles storage proof
 
 	bdl, err := wit.Build(ctx, srv.URL, blockNum, contract, tokenID, owner)
 	require.NoError(t, err)
 
+	t.Logf("Starting circuit compilation...")
 	cs, err := frontend.Compile(
 		circuits.Curve().ScalarField(),
 		r1cs.NewBuilder,
 		bdl.Blueprint)
 	require.NoError(t, err)
+	
+	// Profile constraint count
+	t.Logf("Circuit compiled successfully with %d constraints", cs.GetNbConstraints())
 
-	require.NoError(t, cs.IsSolved(bdl.Full))
+	// Debug witness solving with detailed error information
+	t.Logf("Testing witness solving...")
+	err = cs.IsSolved(bdl.Full)
+	if err != nil {
+		t.Logf("Witness solving failed: %v", err)
+		
+		// Let's examine the witness values
+		t.Logf("Debugging witness structure...")
+		t.Logf("Public inputs: %+v", bdl.Public)
+		t.Logf("Expected owner length: %d", len(bdl.Blueprint.ExpectedOwner))
+		t.Logf("Storage proof nodes: %d", len(bdl.Blueprint.StorageProof))
+		
+		// Fail with detailed error
+		require.NoError(t, err)
+	}
+	
+	t.Logf("Witness solving succeeded!")
 
 	blob, err := bdl.Full.MarshalBinary()
 	require.NoError(t, err)
