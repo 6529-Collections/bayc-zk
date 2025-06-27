@@ -67,7 +67,19 @@ func TestFromFixtures(t *testing.T) {
 	t.Logf("StoragePath has %d nibbles", len(builder.StoragePath))
 	t.Logf("TokenID: %s", builder.TokenID.String())
 	t.Logf("Owner: %s", builder.Owner)
-	t.Logf("OwnerBytes: %d bytes (all zeros for empty slot)", len(builder.OwnerBytes))
+	// Check if OwnerBytes contains real data or is all zeros
+	allZeros := true
+	for _, b := range builder.OwnerBytes {
+		if b.Val != 0 {
+			allZeros = false
+			break
+		}
+	}
+	if allZeros {
+		t.Logf("OwnerBytes: %d bytes (all zeros - empty slot)", len(builder.OwnerBytes))
+	} else {
+		t.Logf("OwnerBytes: %d bytes (contains real storage data)", len(builder.OwnerBytes))
+	}
 }
 
 func TestFromFixtures_MissingFiles(t *testing.T) {

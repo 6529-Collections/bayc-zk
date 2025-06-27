@@ -79,11 +79,11 @@ func toU8Slice(b []byte) []uints.U8 {
 }
 
 // FromFixtures loads test fixture data from JSON files and creates a Builder
-// Hard-coded to use BAYC token ID 8822 and fixture directory for now
+// Hard-coded to use Doodles token ID 8822 and fixture directory for now
 func FromFixtures(dir string) (*Builder, error) {
 	// Hard-code paths for now as specified
-	proofPath := filepath.Join(dir, "proof_bayc_8822.json")
-	headerPath := filepath.Join(dir, "header_22566332.json")
+	proofPath := filepath.Join(dir, "proof_doodles_8822.json")
+	headerPath := filepath.Join(dir, "header_latest.json")
 	
 	// Load proof data
 	proofData, err := os.ReadFile(proofPath)
@@ -163,17 +163,27 @@ func FromFixtures(dir string) (*Builder, error) {
 				if err != nil {
 					return nil, fmt.Errorf("failed to decode storage value: %w", err)
 				}
-				// Pad to 32 bytes if necessary
-				realStorageValue = make([]byte, 32)
-				copy(realStorageValue[32-len(decoded):], decoded)
 				
-				// Extract owner address from storage slot (last 20 bytes)
-				// BAYC stores owner address in the rightmost 20 bytes of the 32-byte slot
-				if len(realStorageValue) >= 20 {
-					ownerBytes := realStorageValue[12:32] // Bytes 12-31 (20 bytes)
-					realOwnerAddress = hex.EncodeToString(ownerBytes)
+				// Handle different storage formats:
+				// - Doodles: 20-byte address directly
+				// - Other contracts: 32-byte slot with address in last 20 bytes
+				if len(decoded) == 20 {
+					// Direct address storage (like Doodles)
+					realStorageValue = make([]byte, 32)
+					copy(realStorageValue[12:32], decoded) // Pad to 32 bytes, address in last 20 bytes
+					realOwnerAddress = hex.EncodeToString(decoded)
 				} else {
-					realOwnerAddress = "0000000000000000000000000000000000000000"
+					// 32-byte slot storage
+					realStorageValue = make([]byte, 32)
+					copy(realStorageValue[32-len(decoded):], decoded)
+					
+					// Extract owner address from storage slot (last 20 bytes)
+					if len(realStorageValue) >= 20 {
+						ownerBytes := realStorageValue[12:32] // Bytes 12-31 (20 bytes)
+						realOwnerAddress = hex.EncodeToString(ownerBytes)
+					} else {
+						realOwnerAddress = "0000000000000000000000000000000000000000"
+					}
 				}
 			} else {
 				realStorageValue = make([]byte, 32)
