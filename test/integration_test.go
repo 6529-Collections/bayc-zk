@@ -50,9 +50,8 @@ func TestEndToEnd(t *testing.T) {
 		t.Skip("skip e2e in –short")
 	}
 	
-	t.Skip("TEMPORARY: Skipping e2e test due to circuit constraint failures with large Ethereum MPT nodes. " +
-		"The witness builder works correctly, but the circuit needs optimization for real-world data. " +
-		"See: constraint #4494765 is not satisfied: 1 ⋅ 86 != 0")
+	// Stress-testing with full Doodles proof to measure constraint explosion
+	t.Logf("Running stress test with universal rlpListWalk verification")
 
 	srv := rpcFixtureServer(t)
 	defer srv.Close()
@@ -66,13 +65,33 @@ func TestEndToEnd(t *testing.T) {
 	bdl, err := wit.Build(ctx, srv.URL, blockNum, contract, tokenID, owner)
 	require.NoError(t, err)
 
+	t.Logf("Starting circuit compilation...")
 	cs, err := frontend.Compile(
 		circuits.Curve().ScalarField(),
 		r1cs.NewBuilder,
 		bdl.Blueprint)
 	require.NoError(t, err)
+	
+	// Profile constraint count
+	t.Logf("Circuit compiled successfully with %d constraints", cs.GetNbConstraints())
 
-	require.NoError(t, cs.IsSolved(bdl.Full))
+	// Debug witness solving with detailed error information
+	t.Logf("Testing witness solving...")
+	err = cs.IsSolved(bdl.Full)
+	if err != nil {
+		t.Logf("Witness solving failed: %v", err)
+		
+		// Let's examine the witness values
+		t.Logf("Debugging witness structure...")
+		t.Logf("Public inputs: %+v", bdl.Public)
+		t.Logf("Expected owner length: %d", len(bdl.Blueprint.ExpectedOwner))
+		t.Logf("Storage proof nodes: %d", len(bdl.Blueprint.StorageProof))
+		
+		// Fail with detailed error
+		require.NoError(t, err)
+	}
+	
+	t.Logf("Witness solving succeeded!")
 
 	blob, err := bdl.Full.MarshalBinary()
 	require.NoError(t, err)
